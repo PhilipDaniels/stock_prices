@@ -1,7 +1,11 @@
 /target
 **/*.rs.bk
 
+# temp/lock files which appear when a CSV file is open in LibreOffice Calc.
+.~*.csv#
+
 # Things from IntelliJ IDEA.
 .idea/**/workspace.xml
 .idea/**/tasks.xml
 .idea/dictionaries
+
