@@ -14,6 +14,7 @@ use serde::Deserialize;
 use std::fmt::Debug;
 use serde::de::DeserializeOwned;
 use serde::Deserializer;
+use std::str::FromStr;
 
 #[derive(StructOpt, Debug)]
 struct Arguments {
@@ -69,15 +70,15 @@ struct Price {
     date: String,
     price: f32,
     prev_price: f32,
-    #[serde(deserialize_with = "optional_number")]
+    #[serde(deserialize_with = "deserialize_optional")]
     fifty_two_week_high: Option<f32>,
-    #[serde(deserialize_with = "optional_number")]
+    #[serde(deserialize_with = "deserialize_optional")]
     fifty_two_week_low: Option<f32>,
-    #[serde(deserialize_with = "optional_number")]
+    #[serde(deserialize_with = "deserialize_optional")]
     market_cap_in_millions: Option<f32>,
-    #[serde(deserialize_with = "optional_number")]
+    #[serde(deserialize_with = "deserialize_optional")]
     sector_id: Option<u32>,
-    #[serde(deserialize_with = "optional_number")]
+    #[serde(deserialize_with = "deserialize_optional")]
     index_id: Option<u32>,
 }
 
@@ -114,6 +115,8 @@ fn main() {
     let mut file = data_dir.clone();
     file.push("price.csv");
     let mut prices: Vec<Price> = read_csv(&file, args.print).expect("Could not read price.csv");
+
+    println!("Data files read successfully. Beginning stock price download.");
 }
 
 fn read_csv<T: Debug + DeserializeOwned>(path: &Path, print: bool) -> std::io::Result<Vec<T>>
@@ -156,24 +159,57 @@ fn must_exist_and_be_file(path: &Path) {
     must_be_file(path);
 }
 
-fn optional_number<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
-    where D: serde::Deserializer<'de>,
-          T: serde::Deserialize<'de> + Default,
+fn deserialize_optional_f32<'de, D>(de: D) -> Result<Option<f32>, D::Error>
+    where D: serde::Deserializer<'de>
 {
     use serde::Deserialize;
+    use serde::de::Error;
 
-//    let s: &str = Deserialize::deserialize(de)?;
-//
-//    s.to_lowercase();
-//    if s.is_empty() || s == "null" {
-//        return Ok(None);
-//    } else {
-//        return Ok(Some(5.5))
-//    }
+    let s: &str = Deserialize::deserialize(de)?;
 
+    if s.is_empty() || s == "NULL" || s == "null" || s == "Null" {
+        return Ok(None);
+    } else {
+        match s.parse::<f32>() {
+            Ok(f) => return Ok(Some(f)),
+            Err(e) => return Err(D::Error::custom("Could not parse f32"))
+        }
+    }
+}
 
-    match T::deserialize(de) {
-        Ok(x) => Ok(Some(x)),
-        Err(e) => Ok(None)
+fn deserialize_optional_u32<'de, D>(de: D) -> Result<Option<u32>, D::Error>
+    where D: serde::Deserializer<'de>
+{
+    use serde::Deserialize;
+    use serde::de::Error;
+
+    let s: &str = Deserialize::deserialize(de)?;
+
+    if s.is_empty() || s == "NULL" || s == "null" || s == "Null" {
+        return Ok(None);
+    } else {
+        match s.parse::<u32>() {
+            Ok(f) => return Ok(Some(f)),
+            Err(e) => return Err(D::Error::custom("Could not parse u32"))
+        }
+    }
+}
+
+fn deserialize_optional<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
+    where D: serde::Deserializer<'de>,
+          T: FromStr
+{
+    use serde::Deserialize;
+    use serde::de::Error;
+
+    let s: &str = Deserialize::deserialize(de)?;
+
+    if s.is_empty() || s == "NULL" || s == "null" || s == "Null" {
+        return Ok(None);
+    } else {
+        match s.parse::<T>() {
+            Ok(parsed_value) => return Ok(Some(parsed_value)),
+            Err(e) => return Err(D::Error::custom(format!("Could not parse '{}' into the desired type.", s)))
+        }
     }
 }
