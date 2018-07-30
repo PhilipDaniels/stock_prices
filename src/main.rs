@@ -98,19 +98,19 @@ fn main() {
 
     let mut file = data_dir.clone();
     file.push("index.csv");
-    let mut stock_indexes: Vec<Index> = read_csv(&file, args.print).expect("Could not read index.csv");
+    let stock_indexes: Vec<Index> = read_csv(&file, args.print).expect("Could not read index.csv");
 
     let mut file = data_dir.clone();
     file.push("source.csv");
-    let mut stock_sources: Vec<Source> = read_csv(&file, args.print).expect("Could not read source.csv");
+    let stock_sources: Vec<Source> = read_csv(&file, args.print).expect("Could not read source.csv");
 
     let mut file = data_dir.clone();
     file.push("sector.csv");
-    let mut stock_sectors: Vec<Sector> = read_csv(&file, args.print).expect("Could not read sector.csv");
+    let stock_sectors: Vec<Sector> = read_csv(&file, args.print).expect("Could not read sector.csv");
 
     let mut file = data_dir.clone();
     file.push("stock.csv");
-    let mut stocks: Vec<Stock> = read_csv(&file, args.print).expect("Could not read stock.csv");
+    let stocks: Vec<Stock> = read_csv(&file, args.print).expect("Could not read stock.csv");
 
     let mut file = data_dir.clone();
     file.push("price.csv");
@@ -157,42 +157,6 @@ fn must_be_file(path: &Path) {
 fn must_exist_and_be_file(path: &Path) {
     must_exist(path);
     must_be_file(path);
-}
-
-fn deserialize_optional_f32<'de, D>(de: D) -> Result<Option<f32>, D::Error>
-    where D: serde::Deserializer<'de>
-{
-    use serde::Deserialize;
-    use serde::de::Error;
-
-    let s: &str = Deserialize::deserialize(de)?;
-
-    if s.is_empty() || s == "NULL" || s == "null" || s == "Null" {
-        return Ok(None);
-    } else {
-        match s.parse::<f32>() {
-            Ok(f) => return Ok(Some(f)),
-            Err(e) => return Err(D::Error::custom("Could not parse f32"))
-        }
-    }
-}
-
-fn deserialize_optional_u32<'de, D>(de: D) -> Result<Option<u32>, D::Error>
-    where D: serde::Deserializer<'de>
-{
-    use serde::Deserialize;
-    use serde::de::Error;
-
-    let s: &str = Deserialize::deserialize(de)?;
-
-    if s.is_empty() || s == "NULL" || s == "null" || s == "Null" {
-        return Ok(None);
-    } else {
-        match s.parse::<u32>() {
-            Ok(f) => return Ok(Some(f)),
-            Err(e) => return Err(D::Error::custom("Could not parse u32"))
-        }
-    }
 }
 
 fn deserialize_optional<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
