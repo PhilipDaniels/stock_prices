@@ -1,10 +1,13 @@
 [package]
+authors = ["Philip Daniels <Philip.Daniels1971@gmail.com>"]
 name = "stock_prices"
 version = "0.1.0"
-authors = ["Philip Daniels <Philip.Daniels1971@gmail.com>"]
 
 [dependencies]
-structopt = "0.2.8"
 csv = "1.0.0"
-serde_derive = "1.0.70"
+reqwest = "*"
+scraper = "*"
 serde = "1.0.70"
+serde_derive = "1.0.70"
+structopt = "0.2.8"
+kuchiki = "0.7.0"
