@@ -1,9 +1,8 @@
 #[macro_use] extern crate structopt;
 #[macro_use] extern crate serde_derive;
-extern crate serde;
 extern crate csv;
-extern crate core;
 extern crate reqwest;
+extern crate serde;
 
 use structopt::StructOpt;
 use std::path::PathBuf;
@@ -14,9 +13,8 @@ use csv::Reader;
 use std::fmt::Debug;
 use serde::de::DeserializeOwned;
 use std::str::FromStr;
-use core::fmt;
+use std::fmt;
 use std::error;
-use std::string::ParseError;
 use std::num::ParseFloatError;
 
 #[derive(StructOpt, Debug)]
@@ -68,7 +66,6 @@ struct Stock {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 struct Price {
-    id: u32,
     stock_id: u32,
     date: String,
     price: f32,
@@ -76,13 +73,7 @@ struct Price {
     #[serde(deserialize_with = "deserialize_optional")]
     fifty_two_week_high: Option<f32>,
     #[serde(deserialize_with = "deserialize_optional")]
-    fifty_two_week_low: Option<f32>,
-    #[serde(deserialize_with = "deserialize_optional")]
-    market_cap_in_millions: Option<f32>,
-    #[serde(deserialize_with = "deserialize_optional")]
-    sector_id: Option<u32>,
-    #[serde(deserialize_with = "deserialize_optional")]
-    index_id: Option<u32>,
+    fifty_two_week_low: Option<f32>
 }
 
 #[derive(Debug)]
@@ -219,51 +210,31 @@ fn main() {
 
     let mut file = data_dir.clone();
     file.push("stock.csv");
-    let stocks: Vec<Stock> = read_csv(&file, args.print).expect("Could not read stock.csv");
+    let mut stocks: Vec<Stock> = read_csv(&file, args.print).expect("Could not read stock.csv");
+    stocks.sort_by(|a,b| a.symbol.cmp(&b.symbol));
 
     let mut file = data_dir.clone();
     file.push("price.csv");
     let mut prices: Vec<Price> = read_csv(&file, args.print).expect("Could not read price.csv");
 
     println!("Data files read successfully. Beginning stock price download.");
-    let new_prices = download_prices(&stocks);
+    let (new_prices, errors) = download_prices(&stocks);
 }
 
-fn download_prices(stocks: &[Stock]) -> Vec<Price> {
+fn download_prices(stocks: &[Stock]) -> (Vec<Price>, Vec<String>) {
     let mut prices = Vec::new();
+    let mut errors = Vec::new();
 
     for stock in stocks {
         match download_price(stock) {
             Ok(price) => prices.push(price),
             Err(e) => {
-                eprintln!("Could not download price {}, error is {}", stock.symbol, e)
+                errors.push(format!("Could not download price {}, error is {}", stock.symbol, e))
             }
         }
     }
 
-    prices
-}
-
-fn extract_element(s: &str) -> Result<&str, StockPriceError> {
-    match s.find('<') {
-        Some(idx) => Ok(&s[..idx]),
-        None => Err(StockPriceError::CannotParseDocument("Cannot find next '<' character".to_string()))
-    }
-}
-
-fn extract_pence(s: &str) -> Result<f32, StockPriceError> {
-    let mut s = extract_element(s)?.to_string();
-    s.retain(|c| !c.is_ascii_whitespace());
-    s.to_lowercase();
-    if s.len() == 0 || s == "n/a" {
-        return Ok(0.0);
-    }
-
-    s = s.chars().take_while(|c| c.is_ascii_digit() || *c == '.' || *c == ',').collect();
-    s.retain(|c| c != ',');
-    println!("    Parsing {}", s);
-
-    Ok(s.parse::<f32>()?)
+    (prices, errors)
 }
 
 fn download_price(stock: &Stock) -> Result<Price, StockPriceError> {
@@ -296,69 +267,38 @@ fn download_price(stock: &Stock) -> Result<Price, StockPriceError> {
     println!("  Got 52 week low of {}", fifty_two_low);
 
     let price = Price {
-        id: 0,
         stock_id: stock.id,
         date: "today".to_string(),
         price: price,
         prev_price: price - price_change_today,
         fifty_two_week_high: Some(fifty_two_high),
-        fifty_two_week_low: Some(fifty_two_low),
-        market_cap_in_millions: Some(0.1),
-        sector_id: Some(0),
-        index_id: Some(0)
+        fifty_two_week_low: Some(fifty_two_low)
     };
-
-
-    //println!("  Got price of {:#?}", price);
-
-//    let document = kuchiki::parse_html().one(body);
-//
-//    // See https://docs.rs/crate/kuchiki/0.7.0/source/examples/find_matches.rs.
-//    // Find the h2 node that contains something like "BP Market Data".
-//    // There should only be 1.
-//    let headings = document.select("h2").unwrap().filter(|n| {
-//        // as_node get the underlying NodeRef which has the interesting methods.
-//        let node = n.as_node();
-//        let text_node = node.first_child().unwrap();
-//        // Let's get the actual text in this text node. A text node wraps around
-//        // a RefCell<String>, so we need to call borrow() to get a &str out.
-//        let text = text_node.as_text().unwrap().borrow();
-//        text.ends_with("Market Data")
-//    }).collect::<Vec<_>>();
-//
-//    if headings.len() == 0 {
-//        return Err(StockPriceError::CannotParseDocument(
-//            format!("Could not locate Market Data heading for {}", stock.symbol)));
-//    } else if headings.len() > 1 {
-//        return Err(StockPriceError::CannotParseDocument(
-//            format!("Found {} headings ending with 'Market Data' for {}, expected only 1", headings.len(), stock.symbol)));
-//    }
-//
-//    let heading: &NodeRef = headings[0].as_node();
-//    //println!("heading = {:?}", heading);
-//    let heading_parent = heading.parent().unwrap();
-//    //println!("heading_parent = {:?}", heading_parent);
-//    let table_body = heading_parent.select_first("tbody").unwrap();
-//    let tbody = table_body.as_node();
-//    //println!("table_body = {:#?}", tbody);
-//    let table_rows = tbody.select("tr").unwrap().collect::<Vec<_>>();
-//    //println!("Got {} rows", table_rows.len());
-//
-//    let price = extract_data_from_row(&table_rows, "Share Price");
 
     Ok(price)
 }
 
-//fn extract_data_from_row(rows: &[NodeDataRef<ElementData>], heading: &str) -> String {
-//
-//    for row in rows {
-//        let row_node = row.as_node();
-//        let heading_cell = row_node.first_child().unwrap();
-//        let data_cell = row_node.first_child().unwrap();
-//    }
-//
-//    "".to_string()
-//}
+fn extract_element(s: &str) -> Result<&str, StockPriceError> {
+    match s.find('<') {
+        Some(idx) => Ok(&s[..idx]),
+        None => Err(StockPriceError::CannotParseDocument("Cannot find next '<' character".to_string()))
+    }
+}
+
+fn extract_pence(s: &str) -> Result<f32, StockPriceError> {
+    let mut s = extract_element(s)?.to_string();
+    s.retain(|c| !c.is_ascii_whitespace());
+    s.to_lowercase();
+    if s.len() == 0 || s == "n/a" {
+        return Ok(0.0);
+    }
+
+    s = s.chars().take_while(|c| c.is_ascii_digit() || *c == '.' || *c == ',' || *c == '-').collect();
+    s.retain(|c| c != ',');
+    println!("    Parsing {}", s);
+
+    Ok(s.parse::<f32>()?)
+}
 
 fn read_csv<T: Debug + DeserializeOwned>(path: &Path, print: bool) -> std::io::Result<Vec<T>>
 {
