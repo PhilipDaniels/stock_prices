@@ -18,6 +18,10 @@ use std::fmt;
 use std::error;
 use std::num::ParseFloatError;
 use chrono::prelude::*;
+use std::io;
+use std::fs::File;
+use std::io::Write;
+use chrono::DateTime;
 
 #[derive(StructOpt, Debug)]
 struct Arguments {
@@ -98,7 +102,7 @@ impl fmt::Display for StockPriceError {
 impl error::Error for StockPriceError {
     fn description(&self) -> &str {
         match *self {
-            StockPriceError::CannotParseDocument(ref msg) => "Cannot parse document",
+            StockPriceError::CannotParseDocument(ref msg) => msg,
             StockPriceError::CannotParseNumber(ref e) => e.description(),
             // This already impls `Error`, so defer to its own implementation.
             StockPriceError::Request(ref e) => e.description(),
@@ -149,41 +153,6 @@ impl StringExtensions for String {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use ::StringExtensions;
-    use StockPriceError;
-    use std::error::Error;
-
-    #[test]
-    fn chomp_when_pattern_exists_returns_following_text() {
-        let mut s = "<h2>CLLN Market Data</h2> whatever".to_string();
-        s.chomp("Data</h2>").unwrap();
-        assert_eq!(s, " whatever");
-
-        let mut s = "<h2>CLLN Market Data</h2> whatever".to_string();
-        s.chomp("h2>").unwrap();
-        assert_eq!(s, "CLLN Market Data</h2> whatever");
-
-        let mut s = "<h2>CLLN Market Data</h2> whatever".to_string();
-        s.chomp("whatever").unwrap();
-        assert_eq!(s, "");
-    }
-
-    #[test]
-    fn chomp_when_pattern_does_not_exists_returns_error() {
-        let mut s = "hello world".to_string();
-        match s.chomp("BLAH") {
-            Ok(_) => panic!("chomp should NOT return Ok."),
-            Err(e) => {
-                let expected = "Cannot parse document, Cannot find BLAH in string";
-                let actual = format!("{}", e);
-                assert_eq!(expected, actual);
-            }
-        }
-    }
-}
-
 fn main() {
     let args = Arguments::from_args();
 
@@ -198,45 +167,68 @@ fn main() {
 
     println!("Starting to read data files from {:?}", data_dir);
 
-    let mut file = data_dir.clone();
-    file.push("index.csv");
-    let stock_indexes: Vec<Index> = read_csv(&file, args.print).expect("Could not read index.csv");
+    // We don't actually need this.
+//    let mut file = data_dir.clone();
+//    file.push("index.csv");
+//    let stock_indexes: Vec<Index> = read_csv(&file, args.print).expect("Could not read index.csv");
 
     let mut file = data_dir.clone();
     file.push("source.csv");
     let stock_sources: Vec<Source> = read_csv(&file, args.print).expect("Could not read source.csv");
 
-    let mut file = data_dir.clone();
-    file.push("sector.csv");
-    let stock_sectors: Vec<Sector> = read_csv(&file, args.print).expect("Could not read sector.csv");
+    // We don't actually need this.
+//    let mut file = data_dir.clone();
+//    file.push("sector.csv");
+//    let stock_sectors: Vec<Sector> = read_csv(&file, args.print).expect("Could not read sector.csv");
 
     let mut file = data_dir.clone();
     file.push("stock.csv");
     let mut stocks: Vec<Stock> = read_csv(&file, args.print).expect("Could not read stock.csv");
     stocks.sort_by(|a,b| a.symbol.cmp(&b.symbol));
-    let stocks = stocks.into_iter().take(5).collect::<Vec<_>>();
+    let stocks = stocks.into_iter().take(2).collect::<Vec<_>>();
 
     let mut file = data_dir.clone();
     file.push("price.csv");
     let mut prices: Vec<Price> = read_csv(&file, args.print).expect("Could not read price.csv");
 
     println!("Data files read successfully. Beginning stock price download.");
-    let (new_prices, errors) = download_prices(&stocks);
+    let (new_prices, errors) = download_prices(&stocks, &stock_sources);
 
-    println!("\n\nGot the following errors:");
+    eprintln!("\n\nGot the following errors:");
     for error in &errors {
-        println!("ERROR {}", error);
+        eprintln!("{}", error);
     }
 
-
+    println!("Writing Quicken prices.csv");
+    write_quicken_prices(&new_prices, &stocks).expect("Could not write Quicken prices file.");
+    println!("Succeeded in writing Quicken prices.csv");
 }
 
-fn download_prices(stocks: &[Stock]) -> (Vec<Price>, Vec<String>) {
+fn write_quicken_prices(prices: &[Price], stocks: &[Stock]) -> io::Result<()> {
+    let path = Path::new("prices.csv");
+    let mut file = File::create(&path)?;
+
+    // TODO: Replace the string with a DateTime.
+    for price in prices {
+        let stock = stocks.iter().find(|s| s.id == price.stock_id).expect("Could not find Stock the Price is for.");
+        let date = Utc.datetime_from_str(&price.date, "%Y-%m-%d %H:%M:%S.000").unwrap();
+        let date_out = date.format("%e/%m/%Y").to_string();
+        let date_out = date_out.trim();
+        writeln!(file, "{},{:.1},{}", stock.symbol, price.price, date_out)?;
+    }
+
+    Ok(())
+}
+
+fn download_prices(stocks: &[Stock], sources: &[Source]) -> (Vec<Price>, Vec<String>) {
     let mut prices = Vec::new();
     let mut errors = Vec::new();
 
     for stock in stocks {
-        match download_price(stock) {
+        let source = sources.iter().find(|s| s.id == stock.source_id)
+            .expect(&format!("Cannot find Source for Stock {}", stock.symbol));
+
+        match download_price(stock, source) {
             Ok(price) => prices.push(price),
             Err(e) => {
                 errors.push(format!("Could not download price {}, error is {}", stock.symbol, e))
@@ -247,8 +239,8 @@ fn download_prices(stocks: &[Stock]) -> (Vec<Price>, Vec<String>) {
     (prices, errors)
 }
 
-fn download_price(stock: &Stock) -> Result<Price, StockPriceError> {
-    let url = format!("http://www.digitallook.com/equity/{}", stock.digital_look_name);
+fn download_price(stock: &Stock, source: &Source) -> Result<Price, StockPriceError> {
+    let url = format!("{}{}", source.url, stock.digital_look_name);
 
     println!("Downloading {} from {}", stock.symbol, url);
     let mut body = reqwest::get(&url)?.text()?;
@@ -368,7 +360,43 @@ fn deserialize_optional<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
     } else {
         match s.parse::<T>() {
             Ok(parsed_value) => return Ok(Some(parsed_value)),
-            Err(e) => return Err(D::Error::custom(format!("Could not parse '{}' into the desired type.", s)))
+            Err(_e) => return Err(D::Error::custom(format!("Could not parse '{}' into the desired type.", s)))
+        }
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use ::StringExtensions;
+    use StockPriceError;
+    use std::error::Error;
+
+    #[test]
+    fn chomp_when_pattern_exists_returns_following_text() {
+        let mut s = "<h2>CLLN Market Data</h2> whatever".to_string();
+        s.chomp("Data</h2>").unwrap();
+        assert_eq!(s, " whatever");
+
+        let mut s = "<h2>CLLN Market Data</h2> whatever".to_string();
+        s.chomp("h2>").unwrap();
+        assert_eq!(s, "CLLN Market Data</h2> whatever");
+
+        let mut s = "<h2>CLLN Market Data</h2> whatever".to_string();
+        s.chomp("whatever").unwrap();
+        assert_eq!(s, "");
+    }
+
+    #[test]
+    fn chomp_when_pattern_does_not_exists_returns_error() {
+        let mut s = "hello world".to_string();
+        match s.chomp("BLAH") {
+            Ok(_) => panic!("chomp should NOT return Ok."),
+            Err(e) => {
+                let expected = "Cannot parse document, Cannot find BLAH in string";
+                let actual = format!("{}", e);
+                assert_eq!(expected, actual);
+            }
         }
     }
 }

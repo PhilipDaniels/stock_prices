@@ -1,6 +1,9 @@
 /target
 **/*.rs.bk
 
+# Produced by the program.
+prices.csv
+
 # temp/lock files which appear when a CSV file is open in LibreOffice Calc.
 .~*.csv#
 
