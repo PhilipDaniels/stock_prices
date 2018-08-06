@@ -3,6 +3,7 @@
 extern crate csv;
 extern crate reqwest;
 extern crate serde;
+extern crate chrono;
 
 use structopt::StructOpt;
 use std::path::PathBuf;
@@ -16,6 +17,7 @@ use std::str::FromStr;
 use std::fmt;
 use std::error;
 use std::num::ParseFloatError;
+use chrono::prelude::*;
 
 #[derive(StructOpt, Debug)]
 struct Arguments {
@@ -212,6 +214,7 @@ fn main() {
     file.push("stock.csv");
     let mut stocks: Vec<Stock> = read_csv(&file, args.print).expect("Could not read stock.csv");
     stocks.sort_by(|a,b| a.symbol.cmp(&b.symbol));
+    let stocks = stocks.into_iter().take(5).collect::<Vec<_>>();
 
     let mut file = data_dir.clone();
     file.push("price.csv");
@@ -219,6 +222,13 @@ fn main() {
 
     println!("Data files read successfully. Beginning stock price download.");
     let (new_prices, errors) = download_prices(&stocks);
+
+    println!("\n\nGot the following errors:");
+    for error in &errors {
+        println!("ERROR {}", error);
+    }
+
+
 }
 
 fn download_prices(stocks: &[Stock]) -> (Vec<Price>, Vec<String>) {
@@ -266,19 +276,24 @@ fn download_price(stock: &Stock) -> Result<Price, StockPriceError> {
     let fifty_two_low = extract_pence(&body)?;
     println!("  Got 52 week low of {}", fifty_two_low);
 
+    // Ok unless we run past midnight, which is not a concern for this program.
+    let utc: DateTime<Utc> = Utc::now();
+
     let price = Price {
         stock_id: stock.id,
-        date: "today".to_string(),
+        date: utc.format("%Y-%m-%d 00:00:00.000").to_string(),
         price: price,
         prev_price: price - price_change_today,
         fifty_two_week_high: Some(fifty_two_high),
         fifty_two_week_low: Some(fifty_two_low)
     };
 
+    println!("GOT {:#?}", price);
+
     Ok(price)
 }
 
-fn extract_element(s: &str) -> Result<&str, StockPriceError> {
+fn extract_up_to_next_tag(s: &str) -> Result<&str, StockPriceError> {
     match s.find('<') {
         Some(idx) => Ok(&s[..idx]),
         None => Err(StockPriceError::CannotParseDocument("Cannot find next '<' character".to_string()))
@@ -286,7 +301,7 @@ fn extract_element(s: &str) -> Result<&str, StockPriceError> {
 }
 
 fn extract_pence(s: &str) -> Result<f32, StockPriceError> {
-    let mut s = extract_element(s)?.to_string();
+    let mut s = extract_up_to_next_tag(s)?.to_string();
     s.retain(|c| !c.is_ascii_whitespace());
     s.to_lowercase();
     if s.len() == 0 || s == "n/a" {
@@ -295,7 +310,6 @@ fn extract_pence(s: &str) -> Result<f32, StockPriceError> {
 
     s = s.chars().take_while(|c| c.is_ascii_digit() || *c == '.' || *c == ',' || *c == '-').collect();
     s.retain(|c| c != ',');
-    println!("    Parsing {}", s);
 
     Ok(s.parse::<f32>()?)
 }
