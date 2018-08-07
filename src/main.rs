@@ -216,6 +216,7 @@ fn main() {
     let (new_prices, errors) = download_prices(&stocks, &stock_sources);
 
     write_quicken_prices(&output_dir, &new_prices, &stocks).expect("Could not write Quicken prices file.");
+    write_stock_prices(&output_dir, &new_prices, &stocks).expect("Could not write Stock prices file (for shares.ods).");
     write_errors(&output_dir, &errors).expect("Could not write errors file.");
 }
 
@@ -248,8 +249,27 @@ fn write_quicken_prices(output_dir: &Path, prices: &[Price], stocks: &[Stock]) -
         for price in prices {
             let stock = stocks.iter().find(|s| s.id == price.stock_id).expect("Could not find Stock the Price is for.");
             writeln!(file, "{},{:.1},{}/{:02}/{}", stock.symbol, price.price,
-                     price.date.day(), price.date.month(), price.date.year()
-            )?;
+                     price.date.day(), price.date.month(), price.date.year())?;
+        }
+
+        println!("Succeeded in writing {:?}", path);
+    }
+
+    Ok(())
+}
+
+fn write_stock_prices(output_dir: &Path, prices: &[Price], stocks: &[Stock]) -> io::Result<()> {
+    if prices.len() > 0 {
+        let mut path = output_dir.to_path_buf();
+        path.push("stockdata.csv");
+        let mut file = File::create(&path)?;
+
+        println!("\n\nWriting {:?}", path);
+
+        for price in prices {
+            let stock = stocks.iter().find(|s| s.id == price.stock_id).expect("Could not find Stock the Price is for.");
+            writeln!(file, "{},{:.2},{}/{:02}/{},{:.2}", stock.symbol, price.price,
+                     price.date.day(), price.date.month(), price.date.year(), price.prev_price)?;
         }
 
         println!("Succeeded in writing {:?}", path);
