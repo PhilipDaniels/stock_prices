@@ -73,7 +73,8 @@ struct Stock {
     yahoo_symbol: String,
     digital_look_name: String,
     csi: Option<u32>,
-    source_id: u32
+    source_id: u32,
+    enabled: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -204,7 +205,7 @@ fn main() {
     file.push("stock.csv");
     let mut stocks: Vec<Stock> = read_csv(&file, args.print).expect("Could not read stock.csv");
     stocks.sort_by(|a,b| a.symbol.cmp(&b.symbol));
-    let stocks = stocks.into_iter().take(args.num_stocks).collect::<Vec<_>>();
+    let stocks = stocks.into_iter().filter(|s| s.enabled).take(args.num_stocks).collect::<Vec<_>>();
 
     let mut file = data_dir.clone();
     file.push("price.csv");
