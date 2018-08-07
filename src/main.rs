@@ -1,33 +1,36 @@
-#[macro_use] extern crate structopt;
-#[macro_use] extern crate serde_derive;
+extern crate chrono;
 extern crate csv;
 extern crate reqwest;
 extern crate serde;
-extern crate chrono;
+#[macro_use] extern crate serde_derive;
+#[macro_use] extern crate structopt;
 
-use structopt::StructOpt;
-use std::path::PathBuf;
-use std::env;
-use std::process;
-use std::path::Path;
-use csv::Reader;
-use std::fmt::Debug;
-use serde::de::DeserializeOwned;
-use std::str::FromStr;
-use std::fmt;
-use std::error;
-use std::num::ParseFloatError;
 use chrono::prelude::*;
-use std::io;
+use csv::Reader;
+use serde::de::DeserializeOwned;
+use std::env;
+use std::error;
+use std::fmt;
+use std::fmt::Debug;
 use std::fs::File;
+use std::io;
 use std::io::Write;
-use chrono::DateTime;
+use std::num::ParseFloatError;
+use std::path::Path;
+use std::path::PathBuf;
+use std::process;
+use std::str::FromStr;
+use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
 struct Arguments {
     /// Do not download anything, just print reference information.
     #[structopt(short = "p", long = "print")]
     print: bool,
+
+    /// Number of stock prices to download. Defaults to all.
+    #[structopt(short = "n", long = "number", default_value = "100000")]
+    num_stocks: usize,
 
     /// The location of the CSV files. If not set, assumed to
     /// be the current directory.
@@ -73,7 +76,8 @@ struct Stock {
 #[serde(rename_all = "PascalCase")]
 struct Price {
     stock_id: u32,
-    date: String,
+    #[serde(with = "my_date_format")]
+    date: Date<Utc>,
     price: f32,
     prev_price: f32,
     #[serde(deserialize_with = "deserialize_optional")]
@@ -185,36 +189,51 @@ fn main() {
     file.push("stock.csv");
     let mut stocks: Vec<Stock> = read_csv(&file, args.print).expect("Could not read stock.csv");
     stocks.sort_by(|a,b| a.symbol.cmp(&b.symbol));
-    let stocks = stocks.into_iter().take(2).collect::<Vec<_>>();
+    let stocks = stocks.into_iter().take(args.num_stocks).collect::<Vec<_>>();
 
     let mut file = data_dir.clone();
     file.push("price.csv");
     let mut prices: Vec<Price> = read_csv(&file, args.print).expect("Could not read price.csv");
 
-    println!("Data files read successfully. Beginning stock price download.");
+    println!("Data files read successfully. Beginning download of {} prices.", stocks.len());
     let (new_prices, errors) = download_prices(&stocks, &stock_sources);
 
-    eprintln!("\n\nGot the following errors:");
-    for error in &errors {
-        eprintln!("{}", error);
+    write_quicken_prices(&new_prices, &stocks).expect("Could not write Quicken prices file.");
+    write_errors(&errors).expect("Could not write errors file.");
+}
+
+fn write_errors(errors: &[String]) -> io::Result<()> {
+    if errors.len() > 0 {
+        let path = Path::new("errors.txt");
+        let mut file = File::create(&path)?;
+
+        eprintln!("\n\nGot {} errors.", errors.len());
+        for error in errors {
+            eprintln!("{}", error);
+            writeln!(file, "{}", error);
+        }
+
+        println!("Succeeded in writing {:?}", path);
     }
 
-    println!("Writing Quicken prices.csv");
-    write_quicken_prices(&new_prices, &stocks).expect("Could not write Quicken prices file.");
-    println!("Succeeded in writing Quicken prices.csv");
+    Ok(())
 }
 
 fn write_quicken_prices(prices: &[Price], stocks: &[Stock]) -> io::Result<()> {
-    let path = Path::new("prices.csv");
-    let mut file = File::create(&path)?;
+    if prices.len() > 0 {
+        let path = Path::new("prices.csv");
+        let mut file = File::create(&path)?;
 
-    // TODO: Replace the string with a DateTime.
-    for price in prices {
-        let stock = stocks.iter().find(|s| s.id == price.stock_id).expect("Could not find Stock the Price is for.");
-        let date = Utc.datetime_from_str(&price.date, "%Y-%m-%d %H:%M:%S.000").unwrap();
-        let date_out = date.format("%e/%m/%Y").to_string();
-        let date_out = date_out.trim();
-        writeln!(file, "{},{:.1},{}", stock.symbol, price.price, date_out)?;
+        println!("\n\nWriting Quicken prices.csv");
+
+        for price in prices {
+            let stock = stocks.iter().find(|s| s.id == price.stock_id).expect("Could not find Stock the Price is for.");
+            writeln!(file, "{},{:.1},{}/{:02}/{}", stock.symbol, price.price,
+                     price.date.day(), price.date.month(), price.date.year()
+            )?;
+        }
+
+        println!("Succeeded in writing {:?}", path);
     }
 
     Ok(())
@@ -268,12 +287,10 @@ fn download_price(stock: &Stock, source: &Source) -> Result<Price, StockPriceErr
     let fifty_two_low = extract_pence(&body)?;
     println!("  Got 52 week low of {}", fifty_two_low);
 
-    // Ok unless we run past midnight, which is not a concern for this program.
-    let utc: DateTime<Utc> = Utc::now();
-
+    // Utc::today is Ok unless we run past midnight, which is not a concern for this program.
     let price = Price {
         stock_id: stock.id,
-        date: utc.format("%Y-%m-%d 00:00:00.000").to_string(),
+        date: Utc::today(),
         price: price,
         prev_price: price - price_change_today,
         fifty_two_week_high: Some(fifty_two_high),
@@ -365,12 +382,48 @@ fn deserialize_optional<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
     }
 }
 
+mod my_date_format {
+    use chrono::{Date, Datelike, TimeZone, Utc};
+    use serde::{self, Deserialize, Deserializer, Serializer};
+
+    const FORMAT: &'static str = "%Y-%m-%d %H:%M:%S.%3f";
+
+    // The signature of a serialize_with function must follow the pattern:
+    //
+    //    fn serialize<S>(&T, S) -> Result<S::Ok, S::Error>
+    //    where
+    //        S: Serializer
+    //
+    // although it may also be generic over the input types T.
+    pub fn serialize<S>(date: &Date<Utc>, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer,
+    {
+        let s = format!("{}", date.format(FORMAT));
+        serializer.serialize_str(&s)
+    }
+
+    // The signature of a deserialize_with function must follow the pattern:
+    //
+    //    fn deserialize<'de, D>(D) -> Result<T, D::Error>
+    //    where
+    //        D: Deserializer<'de>
+    //
+    // although it may also be generic over the output types T.
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Date<Utc>, D::Error>
+        where D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Utc.datetime_from_str(&s, FORMAT)
+            .map_err(serde::de::Error::custom)
+            .map(|dt| Utc.ymd(dt.year(), dt.month(), dt.day()))
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use ::StringExtensions;
-    use StockPriceError;
     use std::error::Error;
+    use StockPriceError;
 
     #[test]
     fn chomp_when_pattern_exists_returns_following_text() {
