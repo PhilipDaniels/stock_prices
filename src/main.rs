@@ -205,6 +205,7 @@ fn main() {
     file.push("stock.csv");
     let mut stocks: Vec<Stock> = read_csv(&file, args.print).expect("Could not read stock.csv");
     stocks.sort_by(|a,b| a.symbol.cmp(&b.symbol));
+    //stocks.retain(|s| s.symbol == "CUKX" || s.symbol == "ISF" || s.symbol == "RDSB");
     let stocks = stocks.into_iter().filter(|s| s.enabled).take(args.num_stocks).collect::<Vec<_>>();
 
     let mut file = data_dir.clone();
@@ -283,37 +284,65 @@ fn download_price(stock: &Stock, source: &Source) -> Result<Price, StockPriceErr
     let mut body = reqwest::get(&url)?.text()?;
     println!("  Document downloaded.");
 
-    body.chomp("Market Data</h2>")?;
-    body.chomp("precio_ultima_cotizacion")?;
-    body.chomp(">")?;
-    let price = extract_pence(&body)?;
-    println!("  Got price of {}", price);
-
-    body.chomp("variacion_puntos")?;
-    body.chomp(">")?;
-    body.chomp(">")?;
-    let price_change_today = extract_pence(&body)?;
-    println!("  Got price_change_today of {}", price_change_today);
-
-    body.chomp("High 52 week range")?;
-    body.chomp("<td>")?;
-    let fifty_two_high = extract_pence(&body)?;
-    println!("  Got 52 week high of {}", fifty_two_high);
-
-    body.chomp("Low 52 week range")?;
-    body.chomp("<td>")?;
-    let fifty_two_low = extract_pence(&body)?;
-    println!("  Got 52 week low of {}", fifty_two_low);
-
     // Utc::today is Ok unless we run past midnight, which is not a concern for this program.
-    let price = Price {
+    let mut price = Price {
         stock_id: stock.id,
         date: Utc::today(),
-        price: price,
-        prev_price: price - price_change_today,
-        fifty_two_week_high: Some(fifty_two_high),
-        fifty_two_week_low: Some(fifty_two_low)
+        price: 0.0,
+        prev_price: 0.0,
+        fifty_two_week_high: None,
+        fifty_two_week_low: None
     };
+
+    if source.id == 1 {
+        // A Digital Look equity.
+        body.chomp("Market Data</h2>")?;
+        body.chomp("precio_ultima_cotizacion")?;
+        body.chomp(">")?;
+        price.price = extract_pence(&body)?;
+        println!("  Got price of {}", price.price);
+
+        body.chomp("variacion_puntos")?;
+        body.chomp(">")?;
+        body.chomp(">")?;
+        let price_change_today = extract_pence(&body)?;
+        price.prev_price = price.price - price_change_today;
+        println!("  Got price_change_today of {}", price_change_today);
+
+        body.chomp("High 52 week range")?;
+        body.chomp("<td>")?;
+        price.fifty_two_week_high = Some(extract_pence(&body)?);
+        println!("  Got 52 week high of {:?}", price.fifty_two_week_high);
+
+        body.chomp("Low 52 week range")?;
+        body.chomp("<td>")?;
+        price.fifty_two_week_low = Some(extract_pence(&body)?);
+        println!("  Got 52 week low of {:?}", price.fifty_two_week_low);
+    } else if source.id == 2 {
+        // A Digital Look ETF.
+        body.chomp("Detailed Price Data</h2>")?;
+        body.chomp("<td>Price:</td>")?;
+        body.chomp(">")?;
+        price.price = extract_pence(&body)?;
+        println!("  Got price of {}", price.price);
+
+        body.chomp("<td>Change:</td>")?;
+        body.chomp("<td>")?;
+        body.chomp(">")?;
+        let price_change_today = extract_pence(&body)?;
+        price.prev_price = price.price - price_change_today;
+        println!("  Got price_change_today of {}", price_change_today);
+
+        body.chomp("52 week High")?;
+        body.chomp("<td>")?;
+        price.fifty_two_week_high = Some(extract_pence(&body)?);
+        println!("  Got 52 week high of {:?}", price.fifty_two_week_high);
+
+        body.chomp("52 week Low")?;
+        body.chomp("<td>")?;
+        price.fifty_two_week_low = Some(extract_pence(&body)?);
+        println!("  Got 52 week low of {:?}", price.fifty_two_week_low);
+    }
 
     println!("GOT {:#?}", price);
 
