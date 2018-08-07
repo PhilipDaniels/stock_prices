@@ -34,8 +34,12 @@ struct Arguments {
 
     /// The location of the CSV files. If not set, assumed to
     /// be the current directory.
-    #[structopt(name = "data_directory", parse(from_os_str))]
-    data_directory: Option<PathBuf>
+    #[structopt(short = "d", name = "data_directory", parse(from_os_str))]
+    data_directory: Option<PathBuf>,
+
+    /// The output directory.
+    #[structopt(short = "o", name = "output_directory", parse(from_os_str))]
+    output_directory: Option<PathBuf>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -169,7 +173,18 @@ fn main() {
         process::exit(1);
     }
 
-    println!("Starting to read data files from {:?}", data_dir);
+    let output_dir = args.output_directory.unwrap_or(
+        env::current_dir().expect("Could not determine current directory. Try passing the output directory explicitly."));
+    if !output_dir.exists() {
+        std::fs::create_dir_all(&output_dir).expect(&format!("Cannot create output directory {:?}", output_dir));
+    } else {
+        if output_dir.is_file() {
+            eprintln!("The output directory {:?} is not a directory.", output_dir);
+            process::exit(1);
+        }
+    }
+
+    println!("Data files will be read from {:?} and output files will be written to {:?}", data_dir, output_dir);
 
     // We don't actually need this.
 //    let mut file = data_dir.clone();
@@ -198,13 +213,14 @@ fn main() {
     println!("Data files read successfully. Beginning download of {} prices.", stocks.len());
     let (new_prices, errors) = download_prices(&stocks, &stock_sources);
 
-    write_quicken_prices(&new_prices, &stocks).expect("Could not write Quicken prices file.");
-    write_errors(&errors).expect("Could not write errors file.");
+    write_quicken_prices(&output_dir, &new_prices, &stocks).expect("Could not write Quicken prices file.");
+    write_errors(&output_dir, &errors).expect("Could not write errors file.");
 }
 
-fn write_errors(errors: &[String]) -> io::Result<()> {
+fn write_errors(output_dir: &Path, errors: &[String]) -> io::Result<()> {
     if errors.len() > 0 {
-        let path = Path::new("errors.txt");
+        let mut path = output_dir.to_path_buf();
+        path.push("errors.txt");
         let mut file = File::create(&path)?;
 
         eprintln!("\n\nGot {} errors.", errors.len());
@@ -219,12 +235,13 @@ fn write_errors(errors: &[String]) -> io::Result<()> {
     Ok(())
 }
 
-fn write_quicken_prices(prices: &[Price], stocks: &[Stock]) -> io::Result<()> {
+fn write_quicken_prices(output_dir: &Path, prices: &[Price], stocks: &[Stock]) -> io::Result<()> {
     if prices.len() > 0 {
-        let path = Path::new("prices.csv");
+        let mut path = output_dir.to_path_buf();
+        path.push("prices.csv");
         let mut file = File::create(&path)?;
 
-        println!("\n\nWriting Quicken prices.csv");
+        println!("\n\nWriting {:?}", path);
 
         for price in prices {
             let stock = stocks.iter().find(|s| s.id == price.stock_id).expect("Could not find Stock the Price is for.");
@@ -441,7 +458,7 @@ mod tests {
     }
 
     #[test]
-    fn chomp_when_pattern_does_not_exists_returns_error() {
+    fn chomp_when_pattern_does_not_exist_returns_error() {
         let mut s = "hello world".to_string();
         match s.chomp("BLAH") {
             Ok(_) => panic!("chomp should NOT return Ok."),
