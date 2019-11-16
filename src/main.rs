@@ -3,7 +3,7 @@ extern crate csv;
 extern crate reqwest;
 extern crate serde;
 #[macro_use] extern crate serde_derive;
-#[macro_use] extern crate structopt;
+extern crate structopt;
 
 use chrono::prelude::*;
 use csv::Reader;
@@ -456,23 +456,9 @@ fn deserialize_optional<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
 
 mod my_date_format {
     use chrono::{Date, Datelike, TimeZone, Utc};
-    use serde::{self, Deserialize, Deserializer, Serializer};
+    use serde::{self, Deserialize, Deserializer};
 
     const FORMAT: &'static str = "%Y-%m-%d %H:%M:%S.%3f";
-
-    // The signature of a serialize_with function must follow the pattern:
-    //
-    //    fn serialize<S>(&T, S) -> Result<S::Ok, S::Error>
-    //    where
-    //        S: Serializer
-    //
-    // although it may also be generic over the input types T.
-    pub fn serialize<S>(date: &Date<Utc>, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer,
-    {
-        let s = format!("{}", date.format(FORMAT));
-        serializer.serialize_str(&s)
-    }
 
     // The signature of a deserialize_with function must follow the pattern:
     //
@@ -494,8 +480,6 @@ mod my_date_format {
 #[cfg(test)]
 mod tests {
     use ::StringExtensions;
-    use std::error::Error;
-    use StockPriceError;
 
     #[test]
     fn chomp_when_pattern_exists_returns_following_text() {
