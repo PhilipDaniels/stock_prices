@@ -118,9 +118,9 @@ impl error::Error for StockPriceError {
         }
     }
 
-    fn cause(&self) -> Option<&error::Error> {
+    fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
-            StockPriceError::CannotParseDocument(ref msg) => None,
+            StockPriceError::CannotParseDocument(_) => None,
             // The cause is the underlying implementation error type. Is implicitly
             // cast to the trait object `&error::Error`. This works because the
             // underlying type already implements the `Error` trait.
@@ -210,12 +210,12 @@ fn main() {
 
     let mut file = data_dir.clone();
     file.push("price.csv");
-    let mut prices: Vec<Price> = read_csv(&file, args.print).expect("Could not read price.csv");
+    //let prices: Vec<Price> = read_csv(&file, args.print).expect("Could not read price.csv");
 
     println!("Data files read successfully. Beginning download of {} prices.", stocks.len());
     let (new_prices, errors) = download_prices(&stocks, &stock_sources);
 
-    write_quicken_prices(&output_dir, &new_prices, &stocks).expect("Could not write Quicken prices file.");
+    write_quicken_prices(&output_dir, &new_prices, &stocks, 100.0).expect("Could not write Quicken prices file.");
     write_stock_prices(&output_dir, &new_prices, &stocks).expect("Could not write Stock prices file (for shares.ods).");
     write_errors(&output_dir, &errors).expect("Could not write errors file.");
 }
@@ -229,7 +229,7 @@ fn write_errors(output_dir: &Path, errors: &[String]) -> io::Result<()> {
         eprintln!("\n\nGot {} errors.", errors.len());
         for error in errors {
             eprintln!("{}", error);
-            writeln!(file, "{}", error);
+            writeln!(file, "{}", error)?;
         }
 
         println!("Succeeded in writing {:?}", path);
@@ -238,17 +238,22 @@ fn write_errors(output_dir: &Path, errors: &[String]) -> io::Result<()> {
     Ok(())
 }
 
-fn write_quicken_prices(output_dir: &Path, prices: &[Price], stocks: &[Stock]) -> io::Result<()> {
+fn write_quicken_prices(
+    output_dir: &Path,
+    prices: &[Price],
+    stocks: &[Stock],
+    factor: f32
+    ) -> io::Result<()> {
     if prices.len() > 0 {
         let mut path = output_dir.to_path_buf();
-        path.push("prices.csv");
+        path.push("qp.csv");
         let mut file = File::create(&path)?;
 
         println!("\n\nWriting {:?}", path);
 
         for price in prices {
             let stock = stocks.iter().find(|s| s.id == price.stock_id).expect("Could not find Stock the Price is for.");
-            writeln!(file, "{},{:.1},{}/{:02}/{}", stock.symbol, price.price,
+            writeln!(file, "{},{:.3},{}/{:02}/{}", stock.symbol, price.price / factor,
                      price.date.day(), price.date.month(), price.date.year())?;
         }
 

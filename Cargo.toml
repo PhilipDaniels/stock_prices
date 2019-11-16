@@ -1,13 +1,13 @@
 [package]
 authors = ["Philip Daniels <Philip.Daniels1971@gmail.com>"]
 name = "stock_prices"
-version = "0.1.0"
+version = "0.2.0"
 
 [dependencies]
-csv = "1.0.0"
-reqwest = "*"
-serde = "1.0.70"
-serde_derive = "1.0.70"
-structopt = "0.2.8"
-chrono = { version = "0.4", features = ["serde"] }
+csv = "1.1.1"
+reqwest = "0.9.22"
+serde = "1.0.102"
+serde_derive = "1.0.102"
+structopt = "0.3.4"
+chrono = { version = "0.4.9", features = ["serde"] }
 
