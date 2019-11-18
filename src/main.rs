@@ -5,6 +5,8 @@ extern crate serde;
 #[macro_use] extern crate serde_derive;
 extern crate structopt;
 
+// TODO: Remove the command line arguments
+
 use chrono::prelude::*;
 use csv::Reader;
 use serde::de::DeserializeOwned;
@@ -14,6 +16,7 @@ use std::fmt;
 use std::fmt::Debug;
 use std::fs::File;
 use std::io;
+use std::io::Cursor;
 use std::io::Write;
 use std::num::ParseFloatError;
 use std::path::Path;
@@ -163,124 +166,45 @@ impl StringExtensions for String {
 }
 
 fn main() {
-    let args = Arguments::from_args();
+    // These data files are embedded into the binary, meaning we do not need to ship them as
+    // supporting files (but if anything changes, we need to rebuild the program.)
+    //let stock_market_indexes = include_bytes!("data/index.csv");
+    //let stock_market_sectors = include_bytes!("data/sector.csv");
+    let download_sources = include_bytes!("data/source.csv");
+    let stocks = include_bytes!("data/stock.csv");
 
-    let data_dir = args.data_directory.unwrap_or(
-        env::current_dir().expect("Could not determine current directory. Try passing the data directory explicitly."));
+    // Turn the embedded byte arrays into more reasonable data structures.
+    let mut cursor = Cursor::new(&download_sources[..]);
+    let download_sources: Vec<Source> = read_csv(&mut cursor, true).expect("Could not read source.csv");
 
-    must_exist(&data_dir);
-    if !data_dir.is_dir() {
-        eprintln!("The data directory {:?} is not a directory.", data_dir);
-        process::exit(1);
-    }
-
-    let output_dir = args.output_directory.unwrap_or(
-        env::current_dir().expect("Could not determine current directory. Try passing the output directory explicitly."));
-    if !output_dir.exists() {
-        std::fs::create_dir_all(&output_dir).expect(&format!("Cannot create output directory {:?}", output_dir));
-    } else {
-        if output_dir.is_file() {
-            eprintln!("The output directory {:?} is not a directory.", output_dir);
-            process::exit(1);
-        }
-    }
-
-    println!("Data files will be read from {:?} and output files will be written to {:?}", data_dir, output_dir);
-
-    // We don't actually need this.
-//    let mut file = data_dir.clone();
-//    file.push("index.csv");
-//    let stock_indexes: Vec<Index> = read_csv(&file, args.print).expect("Could not read index.csv");
-
-    let mut file = data_dir.clone();
-    file.push("source.csv");
-    let stock_sources: Vec<Source> = read_csv(&file, args.print).expect("Could not read source.csv");
-
-    // We don't actually need this.
-//    let mut file = data_dir.clone();
-//    file.push("sector.csv");
-//    let stock_sectors: Vec<Sector> = read_csv(&file, args.print).expect("Could not read sector.csv");
-
-    let mut file = data_dir.clone();
-    file.push("stock.csv");
-    let mut stocks: Vec<Stock> = read_csv(&file, args.print).expect("Could not read stock.csv");
+    let mut cursor = Cursor::new(&stocks[..]);
+    let mut stocks: Vec<Stock> = read_csv(&mut cursor, true).expect("Could not read stock.csv");
     stocks.sort_by(|a,b| a.symbol.cmp(&b.symbol));
-    //stocks.retain(|s| s.symbol == "CUKX" || s.symbol == "ISF" || s.symbol == "RDSB");
-    let stocks = stocks.into_iter().filter(|s| s.enabled).take(args.num_stocks).collect::<Vec<_>>();
-
-    let mut file = data_dir.clone();
-    file.push("price.csv");
-    //let prices: Vec<Price> = read_csv(&file, args.print).expect("Could not read price.csv");
+    let stocks = stocks.into_iter().filter(|s| s.enabled).collect::<Vec<_>>();
 
     println!("Data files read successfully. Beginning download of {} prices.", stocks.len());
-    let (new_prices, errors) = download_prices(&stocks, &stock_sources);
+    let (new_prices, errors) = download_prices(&stocks, &download_sources);
 
+    println!("Writing output files.");
+    let output_dir = env::current_dir().expect("Could not determine current directory, so cannot write any output");
     write_quicken_prices(&output_dir, &new_prices, &stocks, 100.0).expect("Could not write Quicken prices file.");
     write_stock_prices(&output_dir, &new_prices, &stocks).expect("Could not write Stock prices file (for shares.ods).");
     write_errors(&output_dir, &errors).expect("Could not write errors file.");
 }
 
-fn write_errors(output_dir: &Path, errors: &[String]) -> io::Result<()> {
-    if errors.len() > 0 {
-        let mut path = output_dir.to_path_buf();
-        path.push("errors.txt");
-        let mut file = File::create(&path)?;
-
-        eprintln!("\n\nGot {} errors.", errors.len());
-        for error in errors {
-            eprintln!("{}", error);
-            writeln!(file, "{}", error)?;
+fn read_csv<T: Debug + DeserializeOwned>(rdr: &mut Cursor<&[u8]>, print: bool) -> std::io::Result<Vec<T>>
+{
+    let mut results: Vec<T> = Vec::new();
+    let mut rdr = Reader::from_reader(rdr);
+    for result in rdr.deserialize() {
+        let record: T = result?;
+        if print {
+            println!("{:?}", record);
         }
-
-        println!("Succeeded in writing {:?}", path);
+        results.push(record);
     }
 
-    Ok(())
-}
-
-fn write_quicken_prices(
-    output_dir: &Path,
-    prices: &[Price],
-    stocks: &[Stock],
-    factor: f32
-    ) -> io::Result<()> {
-    if prices.len() > 0 {
-        let mut path = output_dir.to_path_buf();
-        path.push("qp.csv");
-        let mut file = File::create(&path)?;
-
-        println!("\n\nWriting {:?}", path);
-
-        for price in prices {
-            let stock = stocks.iter().find(|s| s.id == price.stock_id).expect("Could not find Stock the Price is for.");
-            writeln!(file, "{},{:.3},{}/{:02}/{}", stock.symbol, price.price / factor,
-                     price.date.day(), price.date.month(), price.date.year())?;
-        }
-
-        println!("Succeeded in writing {:?}", path);
-    }
-
-    Ok(())
-}
-
-fn write_stock_prices(output_dir: &Path, prices: &[Price], stocks: &[Stock]) -> io::Result<()> {
-    if prices.len() > 0 {
-        let mut path = output_dir.to_path_buf();
-        path.push("stockdata.csv");
-        let mut file = File::create(&path)?;
-
-        println!("\n\nWriting {:?}", path);
-
-        for price in prices {
-            let stock = stocks.iter().find(|s| s.id == price.stock_id).expect("Could not find Stock the Price is for.");
-            writeln!(file, "{},{:.2},{}/{:02}/{},{:.2}", stock.symbol, price.price,
-                     price.date.day(), price.date.month(), price.date.year(), price.prev_price)?;
-        }
-
-        println!("Succeeded in writing {:?}", path);
-    }
-
-    Ok(())
+    Ok(results)
 }
 
 fn download_prices(stocks: &[Stock], sources: &[Source]) -> (Vec<Price>, Vec<String>) {
@@ -395,26 +319,77 @@ fn extract_pence(s: &str) -> Result<f32, StockPriceError> {
     Ok(s.parse::<f32>()?)
 }
 
-fn read_csv<T: Debug + DeserializeOwned>(path: &Path, print: bool) -> std::io::Result<Vec<T>>
-{
-    must_exist_and_be_file(&path);
-    print!("Reading {:?}...", path);
 
-    let mut rdr = Reader::from_path(path)?;
-    let mut results: Vec<T> = Vec::new();
 
-    for result in rdr.deserialize() {
-        let record: T = result?;
-        if print {
-            println!("{:?}", record);
+
+
+
+fn write_errors(output_dir: &Path, errors: &[String]) -> io::Result<()> {
+    if errors.len() > 0 {
+        let mut path = output_dir.to_path_buf();
+        path.push("errors.txt");
+        let mut file = File::create(&path)?;
+
+        eprintln!("\n\nGot {} errors.", errors.len());
+        for error in errors {
+            eprintln!("{}", error);
+            writeln!(file, "{}", error)?;
         }
-        results.push(record);
+
+        println!("Succeeded in writing {:?}", path);
     }
 
-    println!("done.");
-
-    Ok(results)
+    Ok(())
 }
+
+fn write_quicken_prices(
+    output_dir: &Path,
+    prices: &[Price],
+    stocks: &[Stock],
+    factor: f32
+    ) -> io::Result<()> {
+    if prices.len() > 0 {
+        let mut path = output_dir.to_path_buf();
+        path.push("qp.csv");
+        let mut file = File::create(&path)?;
+
+        println!("\n\nWriting {:?}", path);
+
+        for price in prices {
+            let stock = stocks.iter().find(|s| s.id == price.stock_id).expect("Could not find Stock the Price is for.");
+            writeln!(file, "{},{:.3},{}/{:02}/{}", stock.symbol, price.price / factor,
+                     price.date.day(), price.date.month(), price.date.year())?;
+        }
+
+        println!("Succeeded in writing {:?}", path);
+    }
+
+    Ok(())
+}
+
+fn write_stock_prices(output_dir: &Path, prices: &[Price], stocks: &[Stock]) -> io::Result<()> {
+    if prices.len() > 0 {
+        let mut path = output_dir.to_path_buf();
+        path.push("stockdata.csv");
+        let mut file = File::create(&path)?;
+
+        println!("\n\nWriting {:?}", path);
+
+        for price in prices {
+            let stock = stocks.iter().find(|s| s.id == price.stock_id).expect("Could not find Stock the Price is for.");
+            writeln!(file, "{},{:.2},{}/{:02}/{},{:.2}", stock.symbol, price.price,
+                     price.date.day(), price.date.month(), price.date.year(), price.prev_price)?;
+        }
+
+        println!("Succeeded in writing {:?}", path);
+    }
+
+    Ok(())
+}
+
+
+
+
 
 fn must_exist(path: &Path) {
     if !path.exists() {
