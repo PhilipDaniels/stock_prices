@@ -10,6 +10,8 @@ use std::io::{self, Cursor, Write};
 use std::num::ParseFloatError;
 use std::path::Path;
 use std::str::FromStr;
+use futures::stream::{FuturesUnordered, StreamExt};
+use async_std::task;
 
 // Original time: 5m16s.
 
@@ -135,7 +137,7 @@ fn main() {
     let stocks = stocks.into_iter().filter(|s| s.enabled).collect::<Vec<_>>();
 
     println!("Data files read successfully. Beginning download of {} prices.", stocks.len());
-    let (new_prices, errors) = download_prices(&stocks, &download_sources);
+    let (new_prices, errors) = task::block_on(download_prices(&stocks, &download_sources));
 
     println!("Writing output files.");
     let output_dir = env::current_dir().expect("Could not determine current directory, so cannot write any output");
@@ -156,26 +158,32 @@ fn read_csv<T: Debug + DeserializeOwned>(rdr: &mut Cursor<&[u8]>) -> std::io::Re
     Ok(records)
 }
 
-fn download_prices(stocks: &[Stock], sources: &[Source]) -> (Vec<Price>, Vec<String>) {
+async fn download_prices(stocks: &[Stock], sources: &[Source]) -> (Vec<Price>, Vec<String>) {
     let mut prices = Vec::new();
     let mut errors = Vec::new();
+
+    let mut futures = FuturesUnordered::new();
 
     for stock in stocks {
         let source = sources.iter().find(|s| s.id == stock.source_id)
             .expect(&format!("Cannot find Source for Stock {}", stock.symbol));
 
-        match download_price(stock, source) {
+        futures.push(download_price(stock, source));
+    }
+
+    while let Some(res) = futures.next().await {
+        match res {
             Ok(price) => prices.push(price),
             Err(e) => {
-                errors.push(format!("Could not download price {}, error is {}", stock.symbol, e))
-            }
+                         errors.push(format!("Could not download price, error is {}", e))
+                     }
         }
     }
 
     (prices, errors)
 }
 
-fn download_price(stock: &Stock, source: &Source) -> Result<Price, StockPriceError> {
+async fn download_price(stock: &Stock, source: &Source) -> Result<Price, StockPriceError> {
     let url = format!("{}{}", source.url, stock.digital_look_name);
 
     println!("Downloading {} from {}", stock.symbol, url);
@@ -268,27 +276,6 @@ fn extract_pence(s: &str) -> Result<f32, StockPriceError> {
     Ok(s.parse::<f32>()?)
 }
 
-fn write_errors(output_dir: &Path, errors: &[String]) -> io::Result<()> {
-    let mut path = output_dir.to_path_buf();
-    path.push("errors.txt");
-    remove_file(&path)?;
-
-    if errors.len() > 0 {
-        eprintln!("\n\nGot {} errors.", errors.len());
-
-        let mut file = File::create(&path)?;
-
-        for error in errors {
-            eprintln!("{}", error);
-            writeln!(file, "{}", error)?;
-        }
-
-        println!("Succeeded in writing {:?}", path);
-    }
-
-    Ok(())
-}
-
 /// Writes a file which can be imported into Quicken 2004 to import stock prices.
 fn write_qp_csv(
     output_dir: &Path,
@@ -299,11 +286,10 @@ fn write_qp_csv(
 
     let mut path = output_dir.to_path_buf();
     path.push("qp.csv");
-    remove_file(&path)?;
+    delete_file(&path)?;
 
     if prices.len() > 0 {
         println!("\n\nWriting {:?}", path);
-
         let mut file = File::create(&path)?;
 
         for price in prices {
@@ -323,11 +309,10 @@ fn write_qp_csv(
 fn write_stockdata_csv(output_dir: &Path, prices: &[Price], stocks: &[Stock]) -> io::Result<()> {
     let mut path = output_dir.to_path_buf();
     path.push("stockdata.csv");
-    remove_file(&path)?;
+    delete_file(&path)?;
 
     if prices.len() > 0 {
-        println!("\n\nWriting {:?}", path);
-
+        println!("\nWriting {:?}", path);
         let mut file = File::create(&path)?;
 
         for price in prices {
@@ -337,6 +322,34 @@ fn write_stockdata_csv(output_dir: &Path, prices: &[Price], stocks: &[Stock]) ->
         }
 
         println!("Succeeded in writing {:?}", path);
+    }
+
+    Ok(())
+}
+
+fn write_errors(output_dir: &Path, errors: &[String]) -> io::Result<()> {
+    let mut path = output_dir.to_path_buf();
+    path.push("errors.txt");
+    delete_file(&path)?;
+
+    if errors.len() > 0 {
+        eprintln!("\n\nGot {} errors.", errors.len());
+        let mut file = File::create(&path)?;
+
+        for error in errors {
+            eprintln!("{}", error);
+            writeln!(file, "{}", error)?;
+        }
+
+        println!("Succeeded in writing {:?}", path);
+    }
+
+    Ok(())
+}
+
+fn delete_file(path: &Path) -> io::Result<()> {
+    if path.exists() {
+        remove_file(&path)?
     }
 
     Ok(())

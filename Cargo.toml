@@ -9,4 +9,5 @@ csv = "1.1.1"
 reqwest = "0.9.22"
 serde = { version = "1.0", features = ["derive"] }
 chrono = { version = "0.4.9", features = ["serde"] }
-
+futures = "0.3.1"
+async-std = "0.99.9"
