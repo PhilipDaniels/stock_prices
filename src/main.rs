@@ -1,13 +1,7 @@
-extern crate chrono;
-extern crate csv;
-extern crate reqwest;
-extern crate serde;
-#[macro_use] extern crate serde_derive;
-extern crate structopt;
-
 use chrono::prelude::*;
 use csv::Reader;
-use serde::de::DeserializeOwned;
+use serde::de::{DeserializeOwned};
+use serde::Deserialize;
 use std::env;
 use std::error;
 use std::fmt::{self, Debug};
@@ -16,6 +10,8 @@ use std::io::{self, Cursor, Write};
 use std::num::ParseFloatError;
 use std::path::Path;
 use std::str::FromStr;
+
+// Original time: 5m16s.
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -131,10 +127,10 @@ fn main() {
 
     // Turn the embedded byte arrays into more reasonable data structures.
     let mut cursor = Cursor::new(&download_sources[..]);
-    let download_sources: Vec<Source> = read_csv(&mut cursor, true).expect("Could not read source.csv");
+    let download_sources: Vec<Source> = read_csv(&mut cursor).expect("Could not read source.csv");
 
     let mut cursor = Cursor::new(&stocks[..]);
-    let mut stocks: Vec<Stock> = read_csv(&mut cursor, true).expect("Could not read stock.csv");
+    let mut stocks: Vec<Stock> = read_csv(&mut cursor).expect("Could not read stock.csv");
     stocks.sort_by(|a,b| a.symbol.cmp(&b.symbol));
     let stocks = stocks.into_iter().filter(|s| s.enabled).collect::<Vec<_>>();
 
@@ -148,19 +144,16 @@ fn main() {
     write_errors(&output_dir, &errors).expect("Could not write errors file.");
 }
 
-fn read_csv<T: Debug + DeserializeOwned>(rdr: &mut Cursor<&[u8]>, print: bool) -> std::io::Result<Vec<T>>
+fn read_csv<T: Debug + DeserializeOwned>(rdr: &mut Cursor<&[u8]>) -> std::io::Result<Vec<T>>
 {
-    let mut results: Vec<T> = Vec::new();
+    let mut records: Vec<T> = Vec::new();
     let mut rdr = Reader::from_reader(rdr);
-    for result in rdr.deserialize() {
-        let record: T = result?;
-        if print {
-            println!("{:?}", record);
-        }
-        results.push(record);
+
+    for record in rdr.deserialize() {
+        records.push(record?);
     }
 
-    Ok(results)
+    Ok(records)
 }
 
 fn download_prices(stocks: &[Stock], sources: &[Source]) -> (Vec<Price>, Vec<String>) {
@@ -353,7 +346,6 @@ fn deserialize_optional<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
     where D: serde::Deserializer<'de>,
           T: FromStr
 {
-    use serde::Deserialize;
     use serde::de::Error;
 
     let s: &str = Deserialize::deserialize(de)?;
@@ -393,7 +385,7 @@ mod my_date_format {
 
 #[cfg(test)]
 mod tests {
-    use ::StringExtensions;
+    use crate::StringExtensions;
 
     #[test]
     fn chomp_when_pattern_exists_returns_following_text() {

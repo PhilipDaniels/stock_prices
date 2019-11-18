@@ -2,12 +2,11 @@
 authors = ["Philip Daniels <Philip.Daniels1971@gmail.com>"]
 name = "stock_prices"
 version = "0.2.0"
+edition = "2018"
 
 [dependencies]
 csv = "1.1.1"
 reqwest = "0.9.22"
-serde = "1.0.102"
-serde_derive = "1.0.102"
-structopt = "0.3.4"
+serde = { version = "1.0", features = ["derive"] }
 chrono = { version = "0.4.9", features = ["serde"] }
 
