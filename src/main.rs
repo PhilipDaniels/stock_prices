@@ -5,52 +5,17 @@ extern crate serde;
 #[macro_use] extern crate serde_derive;
 extern crate structopt;
 
-// TODO: Remove the command line arguments
-
 use chrono::prelude::*;
 use csv::Reader;
 use serde::de::DeserializeOwned;
 use std::env;
 use std::error;
-use std::fmt;
-use std::fmt::Debug;
-use std::fs::File;
-use std::io;
-use std::io::Cursor;
-use std::io::Write;
+use std::fmt::{self, Debug};
+use std::fs::{File, remove_file};
+use std::io::{self, Cursor, Write};
 use std::num::ParseFloatError;
 use std::path::Path;
-use std::path::PathBuf;
-use std::process;
 use std::str::FromStr;
-use structopt::StructOpt;
-
-#[derive(StructOpt, Debug)]
-struct Arguments {
-    /// Do not download anything, just print reference information.
-    #[structopt(short = "p", long = "print")]
-    print: bool,
-
-    /// Number of stock prices to download. Defaults to all.
-    #[structopt(short = "n", long = "number", default_value = "100000")]
-    num_stocks: usize,
-
-    /// The location of the CSV files. If not set, assumed to
-    /// be the current directory.
-    #[structopt(short = "d", name = "data_directory", parse(from_os_str))]
-    data_directory: Option<PathBuf>,
-
-    /// The output directory.
-    #[structopt(short = "o", name = "output_directory", parse(from_os_str))]
-    output_directory: Option<PathBuf>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-struct Index {
-    id: u32,
-    name: String,
-}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -58,13 +23,6 @@ struct Source {
     id: u32,
     name: String,
     url: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-struct Sector {
-    id: u32,
-    name: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -168,8 +126,6 @@ impl StringExtensions for String {
 fn main() {
     // These data files are embedded into the binary, meaning we do not need to ship them as
     // supporting files (but if anything changes, we need to rebuild the program.)
-    //let stock_market_indexes = include_bytes!("data/index.csv");
-    //let stock_market_sectors = include_bytes!("data/sector.csv");
     let download_sources = include_bytes!("data/source.csv");
     let stocks = include_bytes!("data/stock.csv");
 
@@ -187,8 +143,8 @@ fn main() {
 
     println!("Writing output files.");
     let output_dir = env::current_dir().expect("Could not determine current directory, so cannot write any output");
-    write_quicken_prices(&output_dir, &new_prices, &stocks, 100.0).expect("Could not write Quicken prices file.");
-    write_stock_prices(&output_dir, &new_prices, &stocks).expect("Could not write Stock prices file (for shares.ods).");
+    write_qp_csv(&output_dir, &new_prices, &stocks, 100.0).expect("Could not write Quicken prices file.");
+    write_stockdata_csv(&output_dir, &new_prices, &stocks).expect("Could not write Stock prices file (for shares.ods).");
     write_errors(&output_dir, &errors).expect("Could not write errors file.");
 }
 
@@ -319,18 +275,16 @@ fn extract_pence(s: &str) -> Result<f32, StockPriceError> {
     Ok(s.parse::<f32>()?)
 }
 
-
-
-
-
-
 fn write_errors(output_dir: &Path, errors: &[String]) -> io::Result<()> {
+    let mut path = output_dir.to_path_buf();
+    path.push("errors.txt");
+    remove_file(&path)?;
+
     if errors.len() > 0 {
-        let mut path = output_dir.to_path_buf();
-        path.push("errors.txt");
+        eprintln!("\n\nGot {} errors.", errors.len());
+
         let mut file = File::create(&path)?;
 
-        eprintln!("\n\nGot {} errors.", errors.len());
         for error in errors {
             eprintln!("{}", error);
             writeln!(file, "{}", error)?;
@@ -342,18 +296,22 @@ fn write_errors(output_dir: &Path, errors: &[String]) -> io::Result<()> {
     Ok(())
 }
 
-fn write_quicken_prices(
+/// Writes a file which can be imported into Quicken 2004 to import stock prices.
+fn write_qp_csv(
     output_dir: &Path,
     prices: &[Price],
     stocks: &[Stock],
     factor: f32
     ) -> io::Result<()> {
-    if prices.len() > 0 {
-        let mut path = output_dir.to_path_buf();
-        path.push("qp.csv");
-        let mut file = File::create(&path)?;
 
+    let mut path = output_dir.to_path_buf();
+    path.push("qp.csv");
+    remove_file(&path)?;
+
+    if prices.len() > 0 {
         println!("\n\nWriting {:?}", path);
+
+        let mut file = File::create(&path)?;
 
         for price in prices {
             let stock = stocks.iter().find(|s| s.id == price.stock_id).expect("Could not find Stock the Price is for.");
@@ -367,13 +325,17 @@ fn write_quicken_prices(
     Ok(())
 }
 
-fn write_stock_prices(output_dir: &Path, prices: &[Price], stocks: &[Stock]) -> io::Result<()> {
-    if prices.len() > 0 {
-        let mut path = output_dir.to_path_buf();
-        path.push("stockdata.csv");
-        let mut file = File::create(&path)?;
+/// Writes the file which is used by my 'shares' spreadsheet.
+/// The spreadsheet does not use the quicken (qp.csv) file.
+fn write_stockdata_csv(output_dir: &Path, prices: &[Price], stocks: &[Stock]) -> io::Result<()> {
+    let mut path = output_dir.to_path_buf();
+    path.push("stockdata.csv");
+    remove_file(&path)?;
 
+    if prices.len() > 0 {
         println!("\n\nWriting {:?}", path);
+
+        let mut file = File::create(&path)?;
 
         for price in prices {
             let stock = stocks.iter().find(|s| s.id == price.stock_id).expect("Could not find Stock the Price is for.");
@@ -385,29 +347,6 @@ fn write_stock_prices(output_dir: &Path, prices: &[Price], stocks: &[Stock]) -> 
     }
 
     Ok(())
-}
-
-
-
-
-
-fn must_exist(path: &Path) {
-    if !path.exists() {
-        eprintln!("The path {:?} does not exist.", path);
-        process::exit(1);
-    }
-}
-
-fn must_be_file(path: &Path) {
-    if !path.exists() {
-        eprintln!("The path {:?} is not a file.", path);
-        process::exit(1);
-    }
-}
-
-fn must_exist_and_be_file(path: &Path) {
-    must_exist(path);
-    must_be_file(path);
 }
 
 fn deserialize_optional<'de, D, T>(de: D) -> Result<Option<T>, D::Error>

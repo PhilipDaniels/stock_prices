@@ -84,7 +84,6 @@ Id,Symbol,Name,YahooSymbol,DigitalLookName,CSI,SourceId,Enabled
 69,SDR,Schroders,SDR.L,Schroders,NULL,1,true
 83,SGE,Sage Group,SGE.L,Sage_Group,NULL,1,true
 43,SHP,Shire Plc,SHP.L,Shire_Plc,NULL,1,true
-11,SKY,Sky,SKY.L,Sky,10024,1,true
 58,SL.,Standard Life,SL.L,Standard_Life,NULL,1,false
 32,SMIN,Smiths Group,SMIN.L,Smiths_Group,NULL,1,true
 59,SN.,Smith & Nephew,SN.L,Smith_Nephew,NULL,1,true
