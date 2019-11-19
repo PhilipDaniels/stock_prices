@@ -120,6 +120,13 @@ impl StringExtensions for String {
 }
 
 fn main() {
+    // You may pass 1 or more stock symbols on the command line
+    // to filter to just those stocks.
+    let requested_stocks = std::env::args()
+        .skip(1)
+        .map(|a| a.to_string())
+        .collect::<Vec<_>>();
+
     // These data files are embedded into the binary, meaning we do not need to ship them as
     // supporting files (but if anything changes, we need to rebuild the program.)
     let download_sources = include_bytes!("data/source.csv");
@@ -132,7 +139,11 @@ fn main() {
     let mut cursor = Cursor::new(&stocks[..]);
     let mut stocks: Vec<Stock> = read_csv(&mut cursor).expect("Could not read stock.csv");
     stocks.sort_by(|a,b| a.symbol.cmp(&b.symbol));
-    let stocks = stocks.into_iter().filter(|s| s.enabled).collect::<Vec<_>>();
+    let stocks = if requested_stocks.is_empty() {
+        stocks.into_iter().filter(|stk| stk.enabled).collect::<Vec<_>>()
+    } else {
+        stocks.into_iter().filter(|stk| requested_stocks.iter().any(|rs| rs == &stk.symbol)).collect::<Vec<_>>()
+    };
 
     println!("Data files read successfully. Beginning download of {} prices.", stocks.len());
 
