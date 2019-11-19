@@ -11,7 +11,7 @@ use std::num::ParseFloatError;
 use std::path::Path;
 use std::str::FromStr;
 use futures::stream::{FuturesUnordered, StreamExt};
-use async_std::task;
+use reqwest::Client;
 
 // Original time: 5m16s.
 
@@ -137,7 +137,9 @@ fn main() {
     let stocks = stocks.into_iter().filter(|s| s.enabled).collect::<Vec<_>>();
 
     println!("Data files read successfully. Beginning download of {} prices.", stocks.len());
-    let (new_prices, errors) = task::block_on(download_prices(&stocks, &download_sources));
+
+    let mut runtime = tokio::runtime::Runtime::new().expect("Unable to create a runtime");
+    let (new_prices, errors) = runtime.block_on(download_prices(&stocks, &download_sources));
 
     println!("Writing output files.");
     let output_dir = env::current_dir().expect("Could not determine current directory, so cannot write any output");
@@ -162,13 +164,14 @@ async fn download_prices(stocks: &[Stock], sources: &[Source]) -> (Vec<Price>, V
     let mut prices = Vec::new();
     let mut errors = Vec::new();
 
+    let client = Client::new();
     let mut futures = FuturesUnordered::new();
 
     for stock in stocks {
         let source = sources.iter().find(|s| s.id == stock.source_id)
             .expect(&format!("Cannot find Source for Stock {}", stock.symbol));
 
-        futures.push(download_price(stock, source));
+        futures.push(download_price(stock, source, &client));
     }
 
     while let Some(res) = futures.next().await {
@@ -183,11 +186,18 @@ async fn download_prices(stocks: &[Stock], sources: &[Source]) -> (Vec<Price>, V
     (prices, errors)
 }
 
-async fn download_price(stock: &Stock, source: &Source) -> Result<Price, StockPriceError> {
+async fn download_price(stock: &Stock, source: &Source, client: &Client) -> Result<Price, StockPriceError> {
     let url = format!("{}{}", source.url, stock.digital_look_name);
-
     println!("Downloading {} from {}", stock.symbol, url);
-    let mut body = reqwest::get(&url)?.text()?;
+    let url = reqwest::Url::parse(&url).unwrap();
+
+    // let mut body = client.get(url)
+    //     .await?
+    //     .text()
+    //     .await?;
+
+    let mut body = reqwest::get(url).await?.text().await?;
+    //let mut body = reqwest::get(&url)?.text()?;
     println!("  Document downloaded.");
 
     // Utc::today is Ok unless we run past midnight, which is not a concern for this program.
