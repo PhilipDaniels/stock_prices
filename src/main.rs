@@ -344,6 +344,8 @@ fn write_errors(output_dir: &Path, errors: &[String]) -> io::Result<()> {
         }
 
         println!("Succeeded in writing {:?}", path);
+    } else {
+        println!("There were no errors.");
     }
 
     Ok(())
