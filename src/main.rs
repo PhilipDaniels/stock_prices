@@ -1,17 +1,18 @@
-use chrono::prelude::*;
-use csv::Reader;
-use serde::de::{DeserializeOwned};
-use serde::Deserialize;
 use async_std::task;
 use async_std::sync::{Arc, Mutex};
+use chrono::prelude::*;
+use csv::Reader;
+use serde::de::DeserializeOwned;
+use serde::Deserialize;
+
 use std::env;
-use std::error;
 use std::fmt::{self, Debug};
 use std::fs::{File, remove_file};
 use std::io::{self, Cursor, Write};
 use std::num::ParseFloatError;
 use std::path::Path;
 use std::str::FromStr;
+use std::thread;
 
 // Original time: 5m16s.
 
@@ -54,7 +55,7 @@ struct Price {
 enum StockPriceError {
     CannotParseDocument(String),
     CannotParseNumber(ParseFloatError),
-    Request(reqwest::Error)
+    Download(surf::Exception)
 }
 
 impl fmt::Display for StockPriceError {
@@ -62,29 +63,7 @@ impl fmt::Display for StockPriceError {
         match *self {
             StockPriceError::CannotParseDocument(ref msg) => write!(f, "Cannot parse document, {}", msg),
             StockPriceError::CannotParseNumber(ref e) => std::fmt::Display::fmt(e, f),
-            StockPriceError::Request(ref e) => std::fmt::Display::fmt(e, f)
-        }
-    }
-}
-
-impl error::Error for StockPriceError {
-    fn description(&self) -> &str {
-        match *self {
-            StockPriceError::CannotParseDocument(ref msg) => msg,
-            StockPriceError::CannotParseNumber(ref e) => e.description(),
-            // This already impls `Error`, so defer to its own implementation.
-            StockPriceError::Request(ref e) => e.description(),
-        }
-    }
-
-    fn cause(&self) -> Option<&dyn error::Error> {
-        match *self {
-            StockPriceError::CannotParseDocument(_) => None,
-            // The cause is the underlying implementation error type. Is implicitly
-            // cast to the trait object `&error::Error`. This works because the
-            // underlying type already implements the `Error` trait.
-            StockPriceError::CannotParseNumber(ref e) => Some(e),
-            StockPriceError::Request(ref e) => Some(e),
+            StockPriceError::Download(ref e) => std::fmt::Display::fmt(e, f)
         }
     }
 }
@@ -92,9 +71,9 @@ impl error::Error for StockPriceError {
 // Implement the conversion from `reqwest::Error` to `StockPriceError`.
 // This will be automatically called by `?` if a `reqwest::Error`
 // needs to be converted into a `StockPriceError`.
-impl From<reqwest::Error> for StockPriceError {
-    fn from(err: reqwest::Error) -> StockPriceError {
-        StockPriceError::Request(err)
+impl From<surf::Exception> for StockPriceError {
+    fn from(err: surf::Exception) -> StockPriceError {
+        StockPriceError::Download(err)
     }
 }
 
@@ -214,10 +193,13 @@ fn download_prices(stocks: &[Stock], sources: &[Source]) -> (Vec<Price>, Vec<Str
 
 async fn download_price(stock: Stock, source: Source) -> Result<Price, StockPriceError> {
     let url = format!("{}{}", source.url, stock.digital_look_name);
-    println!("Downloading {} from {}", stock.symbol, url);
+    println!("Downloading {} from {} on thread {:?}", stock.symbol, url, thread::current().id());
 
-    let mut body = reqwest::blocking::get(&url)?.text()?;
-    println!("  Document downloaded.");
+    // Code taken directly from the example for `surf`.
+    let mut result = surf::get(&url).await?;
+    let mut body = result.body_string().await?;
+
+    println!("  Downloaded {} from {}, completed on thread {:?}", stock.symbol, url, thread::current().id());
 
     // Utc::today is Ok unless we run past midnight, which is not a concern for this program.
     let mut price = Price {
