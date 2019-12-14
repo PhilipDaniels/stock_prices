@@ -2,6 +2,8 @@ use chrono::prelude::*;
 use csv::Reader;
 use serde::de::{DeserializeOwned};
 use serde::Deserialize;
+use async_std::task;
+use async_std::sync::{Arc, Mutex};
 use std::env;
 use std::error;
 use std::fmt::{self, Debug};
@@ -13,7 +15,7 @@ use std::str::FromStr;
 
 // Original time: 5m16s.
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
 struct Source {
     id: u32,
@@ -21,7 +23,7 @@ struct Source {
     url: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
 struct Stock {
     id: u32,
@@ -34,7 +36,7 @@ struct Stock {
     enabled: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
 struct Price {
     stock_id: u32,
@@ -168,24 +170,49 @@ fn read_csv<T: Debug + DeserializeOwned>(rdr: &mut Cursor<&[u8]>) -> std::io::Re
     Ok(records)
 }
 
+/// This is the first version, it is complex because we pass in a collection
+/// that we want to mutate.
 fn download_prices(stocks: &[Stock], sources: &[Source]) -> (Vec<Price>, Vec<String>) {
-    let mut prices = Vec::new();
-    let mut errors = Vec::new();
+    let prices = Arc::new(Mutex::new(Vec::<Price>::new()));
+    let errors = Arc::new(Mutex::new(Vec::<String>::new()));
+    let mut tasks = Vec::with_capacity(stocks.len());
 
     for stock in stocks {
         let source = sources.iter().find(|s| s.id == stock.source_id)
             .expect(&format!("Cannot find Source for Stock {}", stock.symbol));
 
-        match download_price(&stock, &source) {
-            Ok(price) => prices.push(price),
-            Err(e) => errors.push(format!("Could not download price, error is {}", e)),
-        }
+        let src = source.clone();
+        let stock = stock.clone();
+        let prices2 = prices.clone();
+        let errors2 = errors.clone();
+
+        tasks.push(task::spawn(async move {
+            match download_price(stock, src).await {
+                Ok(price) => {
+                    let guard = &mut *prices2.lock().await;
+                    guard.push(price);
+                },
+                Err(e) => {
+                    let guard = &mut *errors2.lock().await;
+                    guard.push(format!("Could not download price, error is {}", e))
+                },
+            }
+        }));
+
     }
 
+    task::block_on(async {
+        for t in tasks {
+            t.await;
+        }
+    });
+
+    let prices = Arc::try_unwrap(prices).unwrap().into_inner();
+    let errors = Arc::try_unwrap(errors).unwrap().into_inner();
     (prices, errors)
 }
 
-fn download_price(stock: &Stock, source: &Source) -> Result<Price, StockPriceError> {
+async fn download_price(stock: Stock, source: Source) -> Result<Price, StockPriceError> {
     let url = format!("{}{}", source.url, stock.digital_look_name);
     println!("Downloading {} from {}", stock.symbol, url);
 
@@ -208,48 +235,48 @@ fn download_price(stock: &Stock, source: &Source) -> Result<Price, StockPriceErr
         body.chomp("precio_ultima_cotizacion")?;
         body.chomp(">")?;
         price.price = extract_pence(&body)?;
-        println!("  Got price of {}", price.price);
+        //println!("  Got price of {}", price.price);
 
         body.chomp("variacion_puntos")?;
         body.chomp(">")?;
         body.chomp(">")?;
         let price_change_today = extract_pence(&body)?;
         price.prev_price = price.price - price_change_today;
-        println!("  Got price_change_today of {}", price_change_today);
+        //println!("  Got price_change_today of {}", price_change_today);
 
         body.chomp("High 52 week range")?;
         body.chomp("<td>")?;
         price.fifty_two_week_high = Some(extract_pence(&body)?);
-        println!("  Got 52 week high of {:?}", price.fifty_two_week_high);
+        //println!("  Got 52 week high of {:?}", price.fifty_two_week_high);
 
         body.chomp("Low 52 week range")?;
         body.chomp("<td>")?;
         price.fifty_two_week_low = Some(extract_pence(&body)?);
-        println!("  Got 52 week low of {:?}", price.fifty_two_week_low);
+        //println!("  Got 52 week low of {:?}", price.fifty_two_week_low);
     } else if source.id == 2 {
         // A Digital Look ETF.
         body.chomp("Detailed Price Data</h2>")?;
         body.chomp("<td>Price:</td>")?;
         body.chomp(">")?;
         price.price = extract_pence(&body)?;
-        println!("  Got price of {}", price.price);
+        //println!("  Got price of {}", price.price);
 
         body.chomp("<td>Change:</td>")?;
         body.chomp("<td>")?;
         body.chomp(">")?;
         let price_change_today = extract_pence(&body)?;
         price.prev_price = price.price - price_change_today;
-        println!("  Got price_change_today of {}", price_change_today);
+        //println!("  Got price_change_today of {}", price_change_today);
 
         body.chomp("52 week High")?;
         body.chomp("<td>")?;
         price.fifty_two_week_high = Some(extract_pence(&body)?);
-        println!("  Got 52 week high of {:?}", price.fifty_two_week_high);
+        //println!("  Got 52 week high of {:?}", price.fifty_two_week_high);
 
         body.chomp("52 week Low")?;
         body.chomp("<td>")?;
         price.fifty_two_week_low = Some(extract_pence(&body)?);
-        println!("  Got 52 week low of {:?}", price.fifty_two_week_low);
+        //println!("  Got 52 week low of {:?}", price.fifty_two_week_low);
     }
 
     println!("GOT {:#?}", price);
