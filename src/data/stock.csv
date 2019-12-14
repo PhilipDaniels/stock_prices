@@ -2,12 +2,9 @@ Id,Symbol,Name,YahooSymbol,DigitalLookName,CSI,SourceId,Enabled
 48,AAL,Anglo American,AAL.L,Anglo_American,NULL,1,true
 44,ABF,Associated British Foods,ABF.L,Associated_British_Foods,NULL,1,true
 108,ADM,Admiral Group,ADM.L,Admiral_Group,NULL,1,false
-77,ADN,Aberdeen Asset Management,ADN.L,Aberdeen_Asset_Management,NULL,1,false
 104,AGK,Aggreko,AGK.L,Aggreko,NULL,1,true
 76,AHT,Ashtead Group,AHT.L,Ashtead_Group,NULL,1,true
-26,AML,Amlin,AML.L,Amlin,NULL,1,false
 68,ANTO,Antofagasta,ANTO.L,Antofagasta,NULL,1,true
-53,ARM,ARM Holdings,ARM.L,ARM_Holdings,NULL,1,false
 4,AV,Aviva,AV.L,Aviva,10028,1,true
 37,AZN,AstraZeneca,AZN.L,AstraZeneca,NULL,1,true
 50,BA.,BAE Systems,BA.L,BAE_Systems,NULL,1,true
@@ -15,17 +12,14 @@ Id,Symbol,Name,YahooSymbol,DigitalLookName,CSI,SourceId,Enabled
 17,BATS,British American Tobacco,BATS.L,British_American_Tobacco,10014,1,true
 5,BBY,Balfour Beatty,BBY.L,Balfour_Beatty,10122,1,true
 90,BDEV,Barratt Developments,BDEV.L,Barratt_Developments,NULL,1,true
-14,BG,BG Group,BG.L,BG_Group,10017,1,true
 82,BLND,British Land Co,BLND.L,British_Land_Co,NULL,1,true
-35,BLT,BHP Billiton,BHP.L,BHP_Billiton,NULL,1,true
+35,BLT,BHP Billiton,BHP.L,BHP_Group,NULL,1,true
 75,BNZL,Bunzl,BNZL.L,Bunzl,NULL,1,true
 3,BP,BP,BP.L,BP,10022,1,true
 70,BRBY,Burberry Group,BRBY.L,Burberry_Group,NULL,1,true
 10,BT.A,British Telecom,BT-A.L,BT_Group,10025,1,true
 109,CCL,Carnival,CCL.L,Carnival,NULL,1,true
-1,CLLN,Carillion,CLLN.L,Carillion,14163,1,true
 28,CNA,Centrica,CNA.L,Centrica,NULL,1,true
-47,CPG,Compass Group,CPG.L,Compass_Group,NULL,1,true
 71,CPI,Capita,CPI.L,Capita,NULL,1,true
 22,CRDA,Croda,CRDA.L,Croda_International,10157,1,true
 52,CRH,CRH,CRH.L,CRH,NULL,1,true
@@ -36,10 +30,8 @@ Id,Symbol,Name,YahooSymbol,DigitalLookName,CSI,SourceId,Enabled
 25,DMGT,Daily Mail,DMGT.L,Daily_Mail_and_General_Trust_A_NonV,10034,1,true
 56,EXPN,Experian,EXPN.L,Experian,NULL,1,true
 72,EZJ,easyJet,EZJ.L,easyJet,NULL,1,true
-81,FLG,Friends Life Group Limited,FLG.L,Friends_Life_Group_Limited,NULL,1,false
 78,FRES,Fresnillo,FRES.L,Fresnillo,NULL,1,true
 95,GFS,G4S,GFS.L,G4S,NULL,1,true
-29,GKN,GKN,GKN.L,GKN,NULL,1,false
 40,GLEN,Glencore,GLEN.L,Glencore,NULL,1,true
 36,GSK,GlaxoSmithKline,GSK.L,GlaxoSmithKline,NULL,1,true
 87,HL.,Hargreaves Lansdown,HL.L,Hargreaves_Lansdown,NULL,1,true
@@ -54,9 +46,9 @@ Id,Symbol,Name,YahooSymbol,DigitalLookName,CSI,SourceId,Enabled
 112,ISF,iShares FTSE 100 UCITS ETF GBP (DIST),ISF.L,IShares_FTSE_100_Ucits_ETF_Inc,NULL,2,true
 107,ITRK,Intertek Group,ITRK.L,Intertek_Group,NULL,1,true
 16,ITV,ITV,ITV.L,ITV,54450,1,true
-19,JMAT,Johnson Matthey,JMAT.L,Johnson_Matthey,10222,1,true
+19,JMAT,Johnson Matthey,JMAT.L,Johnson_Matthey-13162,10222,1,true
 67,KGF,Kingfisher,KGF.L,Kingfisher,NULL,1,true
-63,LAND,Land Securities Group,LAND.L,Land_Securities_Group,NULL,1,true
+63,LAND,Land Securities Group,LAND.L,Land_Securities_Group-13171,NULL,1,true
 51,LGEN,Legal & General Group,LGEN.L,Legal_General_Group,NULL,1,true
 18,LLOY,Lloyds Banking Group,LLOY.L,Lloyds_Banking_Group,10056,1,true
 66,LSE,London Stock Exchange Group,LSE.L,London_Stock_Exchange_Group,NULL,1,true
@@ -64,26 +56,21 @@ Id,Symbol,Name,YahooSymbol,DigitalLookName,CSI,SourceId,Enabled
 65,MKS,Marks & Spencer Group,MKS.L,Marks_Spencer_Group,NULL,1,true
 105,MNDI,Mondi,MNDI.L,Mondi,NULL,1,true
 31,MRW,Morrison Supermarkets,MRW.L,Morrison_Wm_Supermarkets,NULL,1,true
-12,NG,National Grid,NG.L,National_Grid,51261,1,true
+12,NG,National Grid,NG.L,National_Grid-13355,51261,1,true
 57,NXT,Next,NXT.L,Next,NULL,1,true
-62,OML,Old Mutual,OML.L,Old_Mutual,NULL,1,false
 41,Pru,Prudential,PRU.L,Prudential,NULL,1,true
 33,PSN,Persimmon,PSN.L,Persimmon,NULL,1,true
 60,PSON,Pearson,PSON.L,Pearson,NULL,1,true
 20,RB,Reckitt Benckiser Group,RB.L,Reckitt_Benckiser_Group,10069,1,true
 15,RBS,RBS,RBS.L,Royal_Bank_of_Scotland_Group,10068,1,true
 2,RDSB,Royal Dutch Shell B,RSDB.L,Royal_Dutch_Shell_B,133755,1,true
-45,REL,Reed Elsevier,REL.L,Reed_Elsevier,NULL,1,true
 39,RIO,RIO Tinto,RIO.L,Rio_Tinto,NULL,1,true
 99,RMG,Royal Mail,RMG.L,Royal_Mail,NULL,1,true
 21,RR,Rolls Royce,RR.L,Rolls-Royce_Holdings,10072,1,true
-101,RRS,Randgold Resources Ltd,RRS.L,Randgold_Resources_Ltd,NULL,1,true
 89,RSA,RSA Insurance Group,RSA.L,RSA_Insurance_Group,NULL,1,true
-38,SAB,SABMiller,SAB.L,SABMiller,NULL,1,false
 88,SBRY,Sainsbury (J),SBRY.L,Sainsbury_J,NULL,1,true
 69,SDR,Schroders,SDR.L,Schroders,NULL,1,true
 83,SGE,Sage Group,SGE.L,Sage_Group,NULL,1,true
-43,SHP,Shire Plc,SHP.L,Shire_Plc,NULL,1,true
 58,SL.,Standard Life,SL.L,Standard_Life,NULL,1,false
 32,SMIN,Smiths Group,SMIN.L,Smiths_Group,NULL,1,true
 59,SN.,Smith & Nephew,SN.L,Smith_Nephew,NULL,1,true
@@ -100,6 +87,5 @@ Id,Symbol,Name,YahooSymbol,DigitalLookName,CSI,SourceId,Enabled
 73,UU.,United Utilities Group,UU.L,United_Utilities_Group,NULL,1,true
 9,VOD,Vodafone,VOD.L,Vodafone_Group,10097,1,true
 30,WEIR,Weir Group,WEIR.L,Weir_Group,NULL,1,true
-61,WOS,Wolseley,WOS.L,Wolseley,NULL,1,true
 13,WPP,WPP,WPP.L,WPP,10098,1,true
 64,WTB,Whitbread,WTB.L,Whitbread,NULL,1,true
