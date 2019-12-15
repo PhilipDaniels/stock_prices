@@ -128,7 +128,7 @@ fn main() {
 
     println!("Data files read successfully. Beginning download of {} prices.", stocks.len());
 
-    let (new_prices, errors) = download_prices(&stocks, &download_sources);
+    let (new_prices, errors) = download_prices2(&stocks, &download_sources);
 
     println!("Writing output files.");
     let output_dir = env::current_dir().expect("Could not determine current directory, so cannot write any output");
@@ -188,6 +188,40 @@ fn download_prices(stocks: &[Stock], sources: &[Source]) -> (Vec<Price>, Vec<Str
 
     let prices = Arc::try_unwrap(prices).unwrap().into_inner();
     let errors = Arc::try_unwrap(errors).unwrap().into_inner();
+    (prices, errors)
+}
+
+/// This version is significantly simpler because the spawned tasks simply return their
+/// results rather than trying to mutate the `prices` and `errors` collections.
+/// However, we still need to clone the input because `task::spawn` requires a static
+/// lifetime (the tasks can outline their)
+fn download_prices2(stocks: &[Stock], sources: &[Source]) -> (Vec<Price>, Vec<String>) {
+    let mut prices = Vec::with_capacity(stocks.len());
+    let mut errors = Vec::new();
+    let mut tasks = Vec::with_capacity(stocks.len());
+
+    for stock in stocks {
+        let source = sources.iter().find(|s| s.id == stock.source_id)
+            .expect(&format!("Cannot find Source for Stock {}", stock.symbol))
+            .clone();
+
+        let stock = stock.clone();
+        tasks.push(task::spawn(async {
+            download_price(stock, source).await
+        }));
+
+    }
+
+    task::block_on(async {
+        for t in tasks {
+            let result = t.await;
+            match result {
+                Ok(price) => prices.push(price),
+                Err(e) => errors.push(format!("Could not download price, error is {}", e)),
+            }
+        }
+    });
+
     (prices, errors)
 }
 
