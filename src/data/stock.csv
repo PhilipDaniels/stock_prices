@@ -81,7 +81,7 @@ Id,Symbol,Name,YahooSymbol,DigitalLookName,CSI,SourceId,Enabled
 84,SVT,Severn Trent,SVT.L,Severn_Trent,NULL,1,false
 106,TLW,Tullow Oil,TLW.L,Tullow_Oil,NULL,1,false
 91,TPK,Travis Perkins,TPK.L,Travis_Perkins,NULL,1,false
-7,TSCO,Tesco,TSCO.L,Tesco,10091,1,true
+7,TSCO,Tesco,TSCO.L,Tesco-13310,10091,1,true
 34,TW.,Taylor Wimpey,TW.L,Taylor_Wimpey,NULL,1,false
 24,ULVR,Unilever,ULVR.L,Unilever,10094,1,false
 73,UU.,United Utilities Group,UU.L,United_Utilities_Group,NULL,1,false
