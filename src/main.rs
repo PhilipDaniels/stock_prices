@@ -1,5 +1,4 @@
 use async_std::task;
-use async_std::sync::{Arc, Mutex};
 use chrono::prelude::*;
 use csv::Reader;
 use serde::de::DeserializeOwned;
@@ -149,48 +148,6 @@ fn read_csv<T: Debug + DeserializeOwned>(rdr: &mut Cursor<&[u8]>) -> std::io::Re
     Ok(records)
 }
 
-/// This is the first version, it is complex because we pass in a collection
-/// that we want to mutate.
-fn download_prices(stocks: &[Stock], sources: &[Source]) -> (Vec<Price>, Vec<String>) {
-    let prices = Arc::new(Mutex::new(Vec::<Price>::new()));
-    let errors = Arc::new(Mutex::new(Vec::<String>::new()));
-    let mut tasks = Vec::with_capacity(stocks.len());
-
-    for stock in stocks {
-        let source = sources.iter().find(|s| s.id == stock.source_id)
-            .expect(&format!("Cannot find Source for Stock {}", stock.symbol));
-
-        let src = source.clone();
-        let stock = stock.clone();
-        let prices2 = prices.clone();
-        let errors2 = errors.clone();
-
-        tasks.push(task::spawn(async move {
-            match download_price(stock, src).await {
-                Ok(price) => {
-                    let guard = &mut *prices2.lock().await;
-                    guard.push(price);
-                },
-                Err(e) => {
-                    let guard = &mut *errors2.lock().await;
-                    guard.push(format!("Could not download price, error is {}", e))
-                },
-            }
-        }));
-
-    }
-
-    task::block_on(async {
-        for t in tasks {
-            t.await;
-        }
-    });
-
-    let prices = Arc::try_unwrap(prices).unwrap().into_inner();
-    let errors = Arc::try_unwrap(errors).unwrap().into_inner();
-    (prices, errors)
-}
-
 /// This version is significantly simpler because the spawned tasks simply return their
 /// results rather than trying to mutate the `prices` and `errors` collections.
 /// However, we still need to clone the input because `task::spawn` requires a static
@@ -310,7 +267,7 @@ fn extract_up_to_next_tag(s: &str) -> Result<&str, StockPriceError> {
 fn extract_pence(s: &str) -> Result<f32, StockPriceError> {
     let mut s = extract_up_to_next_tag(s)?.to_string();
     s.retain(|c| !c.is_ascii_whitespace());
-    s.to_lowercase();
+    s = s.to_lowercase();
     if s.len() == 0 || s == "n/a" {
         return Ok(0.0);
     }
