@@ -1,19 +1,17 @@
-use async_std::task;
 use chrono::prelude::*;
 use csv::Reader;
+use futures::future::join_all;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 
 use std::env;
 use std::fmt::{self, Debug};
-use std::fs::{File, remove_file};
+use std::fs::{remove_file, File};
 use std::io::{self, Cursor, Write};
 use std::num::ParseFloatError;
 use std::path::Path;
 use std::str::FromStr;
 use std::thread;
-
-// Original time: 5m16s.
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
@@ -47,31 +45,30 @@ struct Price {
     #[serde(deserialize_with = "deserialize_optional")]
     fifty_two_week_high: Option<f32>,
     #[serde(deserialize_with = "deserialize_optional")]
-    fifty_two_week_low: Option<f32>
+    fifty_two_week_low: Option<f32>,
 }
 
 #[derive(Debug)]
 enum StockPriceError {
     CannotParseDocument(String),
     CannotParseNumber(ParseFloatError),
-    Download(surf::Exception)
+    Download(reqwest::Error),
 }
 
 impl fmt::Display for StockPriceError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            StockPriceError::CannotParseDocument(ref msg) => write!(f, "Cannot parse document, {}", msg),
+            StockPriceError::CannotParseDocument(ref msg) => {
+                write!(f, "Cannot parse document, {}", msg)
+            }
             StockPriceError::CannotParseNumber(ref e) => std::fmt::Display::fmt(e, f),
-            StockPriceError::Download(ref e) => std::fmt::Display::fmt(e, f)
+            StockPriceError::Download(ref e) => std::fmt::Display::fmt(e, f),
         }
     }
 }
 
-// Implement the conversion from `reqwest::Error` to `StockPriceError`.
-// This will be automatically called by `?` if a `reqwest::Error`
-// needs to be converted into a `StockPriceError`.
-impl From<surf::Exception> for StockPriceError {
-    fn from(err: surf::Exception) -> StockPriceError {
+impl From<reqwest::Error> for StockPriceError {
+    fn from(err: reqwest::Error) -> StockPriceError {
         StockPriceError::Download(err)
     }
 }
@@ -93,13 +90,17 @@ impl StringExtensions for String {
                 let len = s.len();
                 *self = self[idx + len..].to_string();
                 Ok(())
-            },
-            None => Err(StockPriceError::CannotParseDocument(format!("Cannot find {} in string", s)))
+            }
+            None => Err(StockPriceError::CannotParseDocument(format!(
+                "Cannot find {} in string",
+                s
+            ))),
         }
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // You may pass 1 or more stock symbols on the command line
     // to filter to just those stocks.
     let requested_stocks = std::env::args()
@@ -118,26 +119,37 @@ fn main() {
 
     let mut cursor = Cursor::new(&stocks[..]);
     let mut stocks: Vec<Stock> = read_csv(&mut cursor).expect("Could not read stock.csv");
-    stocks.sort_by(|a,b| a.symbol.cmp(&b.symbol));
+    stocks.sort_by(|a, b| a.symbol.cmp(&b.symbol));
     let stocks = if requested_stocks.is_empty() {
-        stocks.into_iter().filter(|stk| stk.enabled).collect::<Vec<_>>()
+        stocks
+            .into_iter()
+            .filter(|stk| stk.enabled)
+            .collect::<Vec<_>>()
     } else {
-        stocks.into_iter().filter(|stk| requested_stocks.iter().any(|rs| rs == &stk.symbol)).collect::<Vec<_>>()
+        stocks
+            .into_iter()
+            .filter(|stk| requested_stocks.iter().any(|rs| rs == &stk.symbol))
+            .collect::<Vec<_>>()
     };
 
-    println!("Data files read successfully. Beginning download of {} prices.", stocks.len());
+    println!(
+        "Data files read successfully. Beginning download of {} prices.",
+        stocks.len()
+    );
 
-    let (new_prices, errors) = download_prices2(&stocks, &download_sources);
+    let (new_prices, errors) = download_prices2(&stocks, &download_sources).await;
 
     println!("Writing output files.");
-    let output_dir = env::current_dir().expect("Could not determine current directory, so cannot write any output");
-    write_qp_csv(&output_dir, &new_prices, &stocks, 100.0).expect("Could not write Quicken prices file.");
-    write_stockdata_csv(&output_dir, &new_prices, &stocks).expect("Could not write Stock prices file (for shares.ods).");
+    let output_dir = env::current_dir()
+        .expect("Could not determine current directory, so cannot write any output");
+    write_qp_csv(&output_dir, &new_prices, &stocks, 100.0)
+        .expect("Could not write Quicken prices file.");
+    write_stockdata_csv(&output_dir, &new_prices, &stocks)
+        .expect("Could not write Stock prices file (for shares.ods).");
     write_errors(&output_dir, &errors).expect("Could not write errors file.");
 }
 
-fn read_csv<T: Debug + DeserializeOwned>(rdr: &mut Cursor<&[u8]>) -> std::io::Result<Vec<T>>
-{
+fn read_csv<T: Debug + DeserializeOwned>(rdr: &mut Cursor<&[u8]>) -> std::io::Result<Vec<T>> {
     let mut records: Vec<T> = Vec::new();
     let mut rdr = Reader::from_reader(rdr);
 
@@ -148,49 +160,55 @@ fn read_csv<T: Debug + DeserializeOwned>(rdr: &mut Cursor<&[u8]>) -> std::io::Re
     Ok(records)
 }
 
-/// This version is significantly simpler because the spawned tasks simply return their
-/// results rather than trying to mutate the `prices` and `errors` collections.
-/// However, we still need to clone the input because `task::spawn` requires a static
-/// lifetime (the tasks can outline their)
-fn download_prices2(stocks: &[Stock], sources: &[Source]) -> (Vec<Price>, Vec<String>) {
+async fn download_prices2(stocks: &[Stock], sources: &[Source]) -> (Vec<Price>, Vec<String>) {
     let mut prices = Vec::with_capacity(stocks.len());
     let mut errors = Vec::new();
     let mut tasks = Vec::with_capacity(stocks.len());
 
     for stock in stocks {
-        let source = sources.iter().find(|s| s.id == stock.source_id)
+        let source = sources
+            .iter()
+            .find(|s| s.id == stock.source_id)
             .expect(&format!("Cannot find Source for Stock {}", stock.symbol))
             .clone();
 
         let stock = stock.clone();
-        tasks.push(task::spawn(async {
-            download_price(stock, source).await
-        }));
-
+        tasks.push(tokio::spawn(
+            async move { download_price(stock, source).await },
+        ));
     }
 
-    task::block_on(async {
-        for t in tasks {
-            let result = t.await;
-            match result {
+    let completed_tasks = join_all(tasks).await;
+    
+    for t in completed_tasks {
+        match t {
+            Ok(r) => match r {
                 Ok(price) => prices.push(price),
                 Err(e) => errors.push(format!("Could not download price, error is {}", e)),
-            }
+            },
+            Err(e) => errors.push(format!("Could not download price, error is {}", e)),
         }
-    });
+    }
 
     (prices, errors)
 }
 
 async fn download_price(stock: Stock, source: Source) -> Result<Price, StockPriceError> {
     let url = format!("{}{}", source.url, stock.digital_look_name);
-    println!("Downloading {} from {} on thread {:?}", stock.symbol, url, thread::current().id());
-
-    // Code taken directly from the example for `surf`.
-    let mut result = surf::get(&url).await?;
-    let mut body = result.body_string().await?;
-
-    println!("  Downloaded {} from {}, completed on thread {:?}", stock.symbol, url, thread::current().id());
+    println!(
+        "Downloading {} from {} on thread {:?}",
+        stock.symbol,
+        url,
+        thread::current().id()
+    );
+    let res = reqwest::get(&url).await?;
+    let mut body = res.text().await?;
+    println!(
+        "  Downloaded {} from {}, completed on thread {:?}",
+        stock.symbol,
+        url,
+        thread::current().id()
+    );
 
     // Utc::today is Ok unless we run past midnight, which is not a concern for this program.
     let mut price = Price {
@@ -199,7 +217,7 @@ async fn download_price(stock: Stock, source: Source) -> Result<Price, StockPric
         price: 0.0,
         prev_price: 0.0,
         fifty_two_week_high: None,
-        fifty_two_week_low: None
+        fifty_two_week_low: None,
     };
 
     if source.id == 1 {
@@ -260,7 +278,9 @@ async fn download_price(stock: Stock, source: Source) -> Result<Price, StockPric
 fn extract_up_to_next_tag(s: &str) -> Result<&str, StockPriceError> {
     match s.find('<') {
         Some(idx) => Ok(&s[..idx]),
-        None => Err(StockPriceError::CannotParseDocument("Cannot find next '<' character".to_string()))
+        None => Err(StockPriceError::CannotParseDocument(
+            "Cannot find next '<' character".to_string(),
+        )),
     }
 }
 
@@ -272,7 +292,10 @@ fn extract_pence(s: &str) -> Result<f32, StockPriceError> {
         return Ok(0.0);
     }
 
-    s = s.chars().take_while(|c| c.is_ascii_digit() || *c == '.' || *c == ',' || *c == '-').collect();
+    s = s
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == ',' || *c == '-')
+        .collect();
     s.retain(|c| c != ',');
 
     Ok(s.parse::<f32>()?)
@@ -283,9 +306,8 @@ fn write_qp_csv(
     output_dir: &Path,
     prices: &[Price],
     stocks: &[Stock],
-    factor: f32
-    ) -> io::Result<()> {
-
+    factor: f32,
+) -> io::Result<()> {
     let mut path = output_dir.to_path_buf();
     path.push("qp.csv");
     delete_file(&path)?;
@@ -295,9 +317,19 @@ fn write_qp_csv(
         let mut file = File::create(&path)?;
 
         for price in prices {
-            let stock = stocks.iter().find(|s| s.id == price.stock_id).expect("Could not find Stock the Price is for.");
-            writeln!(file, "{},{:.3},{}/{:02}/{}", stock.symbol, price.price / factor,
-                     price.date.day(), price.date.month(), price.date.year())?;
+            let stock = stocks
+                .iter()
+                .find(|s| s.id == price.stock_id)
+                .expect("Could not find Stock the Price is for.");
+            writeln!(
+                file,
+                "{},{:.3},{}/{:02}/{}",
+                stock.symbol,
+                price.price / factor,
+                price.date.day(),
+                price.date.month(),
+                price.date.year()
+            )?;
         }
 
         println!("Succeeded in writing {:?}", path);
@@ -318,9 +350,20 @@ fn write_stockdata_csv(output_dir: &Path, prices: &[Price], stocks: &[Stock]) ->
         let mut file = File::create(&path)?;
 
         for price in prices {
-            let stock = stocks.iter().find(|s| s.id == price.stock_id).expect("Could not find Stock the Price is for.");
-            writeln!(file, "{},{:.2},{}/{:02}/{},{:.2}", stock.symbol, price.price,
-                     price.date.day(), price.date.month(), price.date.year(), price.prev_price)?;
+            let stock = stocks
+                .iter()
+                .find(|s| s.id == price.stock_id)
+                .expect("Could not find Stock the Price is for.");
+            writeln!(
+                file,
+                "{},{:.2},{}/{:02}/{},{:.2}",
+                stock.symbol,
+                price.price,
+                price.date.day(),
+                price.date.month(),
+                price.date.year(),
+                price.prev_price
+            )?;
         }
 
         println!("Succeeded in writing {:?}", path);
@@ -360,8 +403,9 @@ fn delete_file(path: &Path) -> io::Result<()> {
 }
 
 fn deserialize_optional<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
-    where D: serde::Deserializer<'de>,
-          T: FromStr
+where
+    D: serde::Deserializer<'de>,
+    T: FromStr,
 {
     use serde::de::Error;
 
@@ -372,7 +416,12 @@ fn deserialize_optional<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
     } else {
         match s.parse::<T>() {
             Ok(parsed_value) => return Ok(Some(parsed_value)),
-            Err(_e) => return Err(D::Error::custom(format!("Could not parse '{}' into the desired type.", s)))
+            Err(_e) => {
+                return Err(D::Error::custom(format!(
+                    "Could not parse '{}' into the desired type.",
+                    s
+                )))
+            }
         }
     }
 }
@@ -391,7 +440,8 @@ mod my_date_format {
     //
     // although it may also be generic over the output types T.
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Date<Utc>, D::Error>
-        where D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
         Utc.datetime_from_str(&s, FORMAT)
