@@ -17,7 +17,6 @@ use std::thread;
 #[serde(rename_all = "PascalCase")]
 struct Source {
     id: u32,
-    name: String,
     url: String,
 }
 
@@ -26,10 +25,7 @@ struct Source {
 struct Stock {
     id: u32,
     symbol: String,
-    name: String,
-    yahoo_symbol: String,
     digital_look_name: String,
-    csi: Option<u32>,
     source_id: u32,
     enabled: bool,
 }
