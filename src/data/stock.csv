@@ -64,7 +64,7 @@ Id,Symbol,Name,YahooSymbol,DigitalLookName,CSI,SourceId,Enabled
 60,PSON,Pearson,PSON.L,Pearson,NULL,1,false
 20,RB,Reckitt Benckiser Group,RB.L,Reckitt_Benckiser_Group,10069,1,false
 15,RBS,RBS,RBS.L,Royal_Bank_of_Scotland_Group,10068,1,false
-2,RDSB,Royal Dutch Shell B,RSDB.L,Royal_Dutch_Shell_B,133755,1,true
+2,SHEL,Shell B,SHEL.L,Shell,133755,1,true
 39,RIO,RIO Tinto,RIO.L,Rio_Tinto,NULL,1,false
 99,RMG,Royal Mail,RMG.L,Royal_Mail,NULL,1,false
 21,RR,Rolls Royce,RR.L,Rolls-Royce_Holdings,10072,1,true
