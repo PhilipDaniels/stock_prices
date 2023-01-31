@@ -200,7 +200,7 @@ async fn download_price(stock: Stock, source: Source) -> Result<Price, StockPric
     let res = reqwest::get(&url).await?;
     let mut body = res.text().await?;
     println!(
-        "  Downloaded {} from {}, completed on thread {:?}",
+        "Downloaded {} from {}, completed on thread {:?}",
         stock.symbol,
         url,
         thread::current().id()
@@ -266,7 +266,7 @@ async fn download_price(stock: Stock, source: Source) -> Result<Price, StockPric
         //println!("  Got 52 week low of {:?}", price.fifty_two_week_low);
     }
 
-    println!("GOT {:#?}", price);
+    //println!("GOT {:#?}", price);
 
     Ok(price)
 }
@@ -384,7 +384,7 @@ fn write_errors(output_dir: &Path, errors: &[String]) -> io::Result<()> {
 
         println!("Succeeded in writing {:?}", path);
     } else {
-        println!("There were no errors.");
+        println!("\nThere were no errors.");
     }
 
     Ok(())
